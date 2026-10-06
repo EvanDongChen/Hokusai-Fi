@@ -326,6 +326,28 @@ class App {
       ctx.drawImage(ch.image, dx, 0, Math.ceil(x + CW * v) - dx + 1, Hh);
     }
     if (allDone && this.animating) this.life.draw(ctx, view);
+    this.sheetEdges(ctx, v);
+  }
+
+  /** Where the voyage leaves the print, the sheet ends in a deckled edge casting a shadow on the sea. */
+  private sheetEdges(ctx: CanvasRenderingContext2D, v: number) {
+    const Hh = this.wanderCanvas.height;
+    for (const [edge, out] of [[0, -1], [FRAME_W, 1]] as const) {
+      const x = (edge - this.camX) * v;
+      if (x < -40 || x > this.wanderCanvas.width + 40) continue;
+      const sh = ctx.createLinearGradient(x, 0, x + out * 26 * v, 0);
+      sh.addColorStop(0, 'rgba(20,14,10,0.42)');
+      sh.addColorStop(1, 'rgba(20,14,10,0)');
+      ctx.fillStyle = sh;
+      ctx.fillRect(Math.min(x, x + out * 26 * v), 0, 26 * v, Hh);
+      // The margin of the sheet, its torn edge wandering a little.
+      ctx.fillStyle = '#efe5cf';
+      ctx.beginPath();
+      ctx.moveTo(x - out * 14 * v, 0);
+      for (let y = 0; y <= Hh; y += 6) ctx.lineTo(x + out * (1.5 + 1.5 * Math.sin(y * 0.13) + Math.sin(y * 0.031) * 1.2) * v, y);
+      ctx.lineTo(x - out * 14 * v, Hh);
+      ctx.fill();
+    }
   }
 
   private resize() {
