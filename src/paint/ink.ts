@@ -20,7 +20,7 @@ export type Ink = 'paper' | 'aqua' | 'blue' | 'deep' | 'key' | 'shade' | 'boat' 
 export type Palette = Record<Ink, RGB>;
 
 /** One impression: shapes filled in one ink, or polylines stroked in it. */
-export interface Layer { ink: Ink; fill?: Pt[][]; line?: { pts: Pt[]; w: number }[]; alpha?: number; }
+export interface Layer { ink: Ink; fill?: Pt[][]; line?: { pts: Pt[]; w: number; closed?: boolean }[]; alpha?: number; }
 
 export function paintLayers(ctx: Ctx, layers: Layer[], pal: Palette) {
   for (const l of layers) {
@@ -39,7 +39,7 @@ function paintLayer(ctx: Ctx, l: Layer, pal: Palette) {
   if (l.line?.length) {
     // Lines are carved as the brush drew them: filled bands that swell and taper.
     ctx.beginPath();
-    for (const { pts, w } of l.line) if (pts.length > 1) polyPath(ctx, carvedLine(pts, w));
+    for (const { pts, w, closed } of l.line) if (pts.length > 1) polyPath(ctx, carvedLine(pts, w, closed));
     ctx.fill('nonzero');
   }
 }
@@ -99,9 +99,12 @@ export function lobed(path: Path, a: number, b: number, o: LobeOpts, rng: Rng): 
   return { edge, tips };
 }
 
-/** The blocks talons print in: the foam they grow from, their pale shadows, white bodies and dark hooks. */
-export interface Talons { mass: Pt[][]; halo: Pt[][]; body: Pt[][]; hook: Pt[][]; }
-export const talons = (): Talons => ({ mass: [], halo: [], body: [], hook: [] });
+/**
+ * The blocks talons print in: the foam they grow from and the edge of it that is outlined (its
+ * rim), their pale shadows, white bodies and dark hooks.
+ */
+export interface Talons { mass: Pt[][]; rim: Pt[][]; halo: Pt[][]; body: Pt[][]; hook: Pt[][]; }
+export const talons = (): Talons => ({ mass: [], rim: [], halo: [], body: [], hook: [] });
 
 /**
  * A talon of foam from (x, y), heading `ang`, curling round by `curl` radians at its end, toward
@@ -154,43 +157,69 @@ export function talonsOnTips(out: Talons, rng: Rng, tips: Tip[], size: number, t
   const lift = o.lift ?? 0.6, every = o.every ?? 1;
   for (const tip of tips) {
     if (!rng.chance(every)) continue;
-    const s = size * rng.range(0.75, 1.25);
+    // A finger of foam longer than it is wide, reaching on from the blue and curling over.
+    const s = size * rng.range(0.75, 1.25), len = s * rng.range(1.4, 1.9);
     const dx = tip.t[0] + tip.n[0] * lift, dy = tip.t[1] + tip.n[1] * lift;
-    talon(out, rng, tip.p[0] - tip.n[0] * s * 0.15, tip.p[1] - tip.n[1] * s * 0.15, Math.atan2(dy, dx) + rng.range(-0.25, 0.25), s, s * rng.range(0.42, 0.55), turn, (o.curl ?? 2.4) * rng.range(0.85, 1.15), o.depth ?? (s > 22 ? 1 : 0));
+    talon(out, rng, tip.p[0] - tip.n[0] * s * 0.25, tip.p[1] - tip.n[1] * s * 0.25, Math.atan2(dy, dx) + rng.range(-0.25, 0.25), len, s * rng.range(0.34, 0.42), turn, (o.curl ?? 2.6) * rng.range(0.85, 1.15), o.depth ?? (s > 16 ? 1 : 0));
   }
 }
 
 /**
- * The crown of foam on a breaking crest: short, fat talons packed between path b and path a,
- * each curling over, one every `step` px along and about a talon's length apart across. The
- * talons near path a, the crown's outer edge, are the biggest.
+ * The crown of foam on a breaking crest, between its inner edge (path b) and its outer edge
+ * (path a). The foam is one mass reaching out to the crest, and from its edge long fingers grow
+ * out and forward, each splitting into smaller ones that curl over into claws, so the whole crest
+ * breaks as one branching hand of foam. Over the mass itself lie a few rows of smaller claws, of
+ * which only the dark hooks show.
  */
 export function crown(out: Talons, rng: Rng, a: Path, b: Path, o: { rows: number; step: number; size: number; turn: number; curl?: number; from?: number; to?: number; grow?: number }) {
-  const f0 = o.from ?? 0, f1 = o.to ?? 1;
-  const n = Math.max(1, Math.round((b.total + a.total) / 2 * (f1 - f0) / o.step));
-  // The foam the talons grow from: most of the way out to the crown's edge, ragged along it.
-  const m = 48, inner: Pt[] = [], outer: Pt[] = [];
+  const f0 = o.from ?? 0, f1 = o.to ?? 1, curl = o.curl ?? 2.6;
+  // The mass: out to the crown's edge, rising and falling in rounded swells along it.
+  const m = 64, inner: Pt[] = [], outer: Pt[] = [], ph = rng.random() * 6, wl = rng.range(5, 8);
   for (let i = 0; i <= m; i++) {
-    const f = f0 + (f1 - f0) * (i / m), pb = b.at(f), pa = a.at(f), u = 0.55 + 0.2 * Math.sin(i * 1.7 + rng.random());
+    const f = f0 + (f1 - f0) * (i / m), pb = b.at(f), pa = a.at(f);
+    const u = 0.72 + 0.14 * Math.sin(i / m * wl * Math.PI * 2 + ph) * Math.min(1, i / 6, (m - i) / 6);
     inner.push(pb);
     outer.push([lerp(pb[0], pa[0], u), lerp(pb[1], pa[1], u)]);
   }
-  out.mass.push(inner.concat(outer.reverse()));
+  out.mass.push(inner.concat(outer.slice().reverse()));
+  out.rim.push(outer);
+  const O = new Path(outer), n = Math.max(1, Math.round(O.total / o.step));
+  // Fingers from the mass's edge, out and forward, each a little bigger toward the crown's end.
   for (let i = 0; i < n; i++) {
-    const f = f0 + (f1 - f0) * clamp((i + rng.range(0.2, 0.8)) / n, 0, 1);
-    const pb = b.at(f), pa = a.at(f), dx = pa[0] - pb[0], dy = pa[1] - pb[1], reach = Math.hypot(dx, dy);
-    const g = lerp(1, o.grow ?? 1, f), along = a.dir(f);
-    // Rows across the crown, the outermost first, so inner talons tuck under outer ones.
-    const rows = Math.max(1, Math.min(o.rows + 2, Math.round(reach / (o.size * g * 0.85))));
-    for (let k = rows - 1; k >= 0; k--) {
-      const u = rows === 1 ? 0.6 : 0.15 + 0.8 * (k / (rows - 1)) + rng.range(-0.08, 0.08);
-      const x = pb[0] + dx * u + rng.range(-3, 3), y = pb[1] + dy * u + rng.range(-3, 3);
-      const sz = o.size * g * (0.75 + 0.4 * u) * rng.range(0.8, 1.2);
-      // Out from the crest and forward along it, then curling over.
-      const ang = Math.atan2(dy / (reach || 1) * 0.6 + along[1], dx / (reach || 1) * 0.6 + along[0]);
-      talon(out, rng, x, y, ang - o.turn * rng.range(0.3, 0.8), sz, sz * rng.range(0.42, 0.55), o.turn, (o.curl ?? 3) * rng.range(0.85, 1.15), sz > 22 ? 1 : 0);
+    const v = clamp((i + rng.range(0.25, 0.75)) / n, 0, 1), f = f0 + (f1 - f0) * v;
+    const pb = b.at(f), pa = a.at(f), dx = pa[0] - pb[0], dy = pa[1] - pb[1], reach = Math.hypot(dx, dy) || 1;
+    const p = O.at(v), along = a.dir(f), g = lerp(1, o.grow ?? 1, f);
+    const sz = o.size * g * rng.range(0.85, 1.25), len = sz * rng.range(2.3, 3.3);
+    // Rooted well inside the mass so neighbouring fingers join at the base.
+    const x = p[0] - dx / reach * len * 0.3, y = p[1] - dy / reach * len * 0.3;
+    const ang = Math.atan2(dy / reach * 0.75 + along[1] * 0.65, dx / reach * 0.75 + along[0] * 0.65) - o.turn * rng.range(0, 0.4);
+    talon(out, rng, x, y, ang, len, sz * rng.range(0.36, 0.46), o.turn, curl * rng.range(0.9, 1.2), sz > 12 ? 2 : 1);
+  }
+  // Claws lying over the mass, smaller toward the crest's root.
+  for (let k = 0; k < o.rows - 1; k++) {
+    const u = 0.25 + 0.4 * (k / Math.max(1, o.rows - 1)), nn = Math.max(1, Math.round(n * 0.8));
+    for (let i = 0; i < nn; i++) {
+      const f = f0 + (f1 - f0) * clamp((i + rng.range(0.1, 0.9)) / nn, 0, 1), pb = b.at(f), pa = a.at(f), along = a.dir(f);
+      const dx = pa[0] - pb[0], dy = pa[1] - pb[1], reach = Math.hypot(dx, dy) || 1, sz = o.size * (0.5 + 0.4 * u) * rng.range(0.8, 1.15);
+      const ang = Math.atan2(dy / reach * 0.5 + along[1], dx / reach * 0.5 + along[0]) - o.turn * rng.range(0.2, 0.6);
+      talon(out, rng, pb[0] + dx * u, pb[1] + dy * u, ang, sz, sz * 0.42, o.turn, curl * rng.range(0.9, 1.2), 0);
     }
   }
+}
+
+/**
+ * The blocks talons print in, in order: the key block's outline round the whole foam (mass and
+ * talons as one silhouette), the foam, the pale shadows, the talons, and their dark hooks. The
+ * foam is laid over the outline, so only its outer edge stays.
+ */
+export function talonLayers(tl: Talons, w = 1.4): Layer[] {
+  return [
+    { ink: 'key', line: tl.rim.map((pts) => ({ pts, w: w * 2 })).concat(tl.body.map((pts) => ({ pts, w: w * 2, closed: true }))) },
+    { ink: 'paper', fill: tl.mass },
+    { ink: 'aqua', fill: tl.halo },
+    { ink: 'paper', fill: tl.body },
+    { ink: 'key', fill: tl.hook },
+  ];
 }
 
 /**

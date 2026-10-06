@@ -10,7 +10,7 @@ import { carvedLine, polyPath, type Ctx, type Pt } from '../core/print';
 import { hash, Rng } from '../core/rng';
 import { composition, type BoatSpec, type Composition, type Element, type FujiSpec, type SeaSpec, type WaveSpec, type ZoneInk } from '../world/kanagawa';
 import { FRAME_W, H, TINTS, type Tint, type World } from '../world/world';
-import { blob, crown, flecks, lobed, paintLayers, sliver, talon, talons, talonsOnTips, type Ink, type Layer, type Palette } from './ink';
+import { blob, crown, flecks, lobed, paintLayers, sliver, talon, talons, talonsOnTips, talonLayers, type Ink, type Layer, type Palette } from './ink';
 import { L, type ChunkPlan } from './plan';
 import { planOrbs, planWeather } from './sky';
 
@@ -218,8 +218,9 @@ function carveWave(w: WaveSpec, r: Rng): Layer[] {
 
   // The outline, then the foam: these are free of the body, and break out over the sky.
   for (const c of w.crowns ?? []) crown(tl, r, new Path(curve(c.a)), new Path(curve(c.b)), c);
-  const free: Layer & { free?: boolean } = { ink: 'paper', fill: tl.mass, free: true };
-  out.push(free, { ink: 'aqua', fill: tl.halo }, { ink: 'paper', fill: tl.body }, { ink: 'key', fill: tl.hook });
+  const foam: (Layer & { free?: boolean })[] = talonLayers(tl);
+  foam[0].free = true;
+  out.push(...foam);
   const k = w.key ?? [0, 1];
   if (k[1] > k[0]) {
     const O = new Path(curve(w.outline));

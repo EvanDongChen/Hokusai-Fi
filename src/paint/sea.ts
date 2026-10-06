@@ -15,7 +15,7 @@ import { fillPoly, inkedUnion, keyline, offset, polyPath, type Pt } from '../cor
 import { hash, hashFloat, Rng } from '../core/rng';
 import { lipSweep, waveReach, waveShape, zOf, type Wave } from '../world/wave';
 import { H, HZ, type Tint, type World } from '../world/world';
-import { crown, flecks, lobed, paintLayers, sliver, talons, talonsOnTips } from './ink';
+import { crown, flecks, lobed, paintLayers, sliver, talonLayers, talons, talonsOnTips } from './ink';
 import { cellRange, depthLayer, inPad, L, spanInPad, tintRuns, type ChunkPlan, type Item } from './plan';
 
 /** The sea's ground colour at depth y. */
@@ -350,8 +350,7 @@ function carved(push: (op: Item['op']) => void, s: ReturnType<typeof waveShape>,
     ctx.restore();
   });
   push((ctx) => keyline(ctx, s.top.concat(s.inner.slice().reverse(), s.face), lw, key0));
-  push((ctx) => paintLayers(ctx, [{ ink: 'paper', fill: tl.mass }, { ink: 'aqua', fill: tl.halo }, { ink: 'paper', fill: tl.body }, { ink: 'key', fill: tl.hook }],
-    { ...SEA_INKS, paper: t.foam, aqua: t.band, key: key0 }));
+  push((ctx) => paintLayers(ctx, talonLayers(tl, clamp(lw * 0.7, 0.5, 1.4)), { ...SEA_INKS, paper: t.foam, aqua: t.band, key: key0 }));
 }
 
 /** Inks the carved waves use beyond the tint's own. */
