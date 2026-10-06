@@ -12,17 +12,15 @@
 // large Fuji, a coast of pine-covered headlands, and rocky islets with pines and a shrine gate.
 
 import { mix, hex, type RGB } from '../core/color';
-import { clamp, lerp, smoothstep } from '../core/math';
+import { lerp, smoothstep } from '../core/math';
 import { hash, hashFloat, hashString, Rng } from '../core/rng';
-import { surfaceAt, waveReach, waveShape, zOf, type Wave } from './wave';
-
-export type { Wave } from './wave';
+import { zOf } from './wave';
 
 export const H = 1000;
 export const CW = 740;
 export const FRAME_W = 1480;
 /** Where the sea meets the sky. */
-export const HZ = 800;
+export const HZ = 720;
 /** How many chunks either side can reach into a point. */
 const REACH = 2;
 
@@ -83,8 +81,6 @@ export const BIOME_NAMES: Record<Biome, string> = {
   coast: 'A coast of pine headlands', isles: 'Rocky islets and a shrine gate',
 };
 
-/** A fishing boat (oshiokuri-bune), rowed by a crew crouched low over their oars. */
-export interface Boat { id: number; x: number; y: number; len: number; angle: number; z: number; rowers: number; dir: 1 | -1; }
 export interface Peak { id: number; x: number; h: number; w: number; fuji: boolean; }
 export interface Headland { id: number; x: number; w: number; h: number; pines: number; }
 export interface Isle { id: number; x: number; base: number; w: number; h: number; z: number; pines: number; torii: boolean; }
@@ -93,11 +89,11 @@ export interface Sail { id: number; x: number; y: number; size: number; dir: 1 |
 export interface Orb { id: number; x: number; y: number; r: number; kind: 'sun' | 'moon'; }
 
 interface Features {
-  waves: Wave[]; boats: Boat[]; peaks: Peak[]; heads: Headland[]; isles: Isle[]; sails: Sail[];
+  peaks: Peak[]; heads: Headland[]; isles: Isle[]; sails: Sail[];
 }
 export type Nearby = Features;
 
-const empty = (): Features => ({ waves: [], boats: [], peaks: [], heads: [], isles: [], sails: [] });
+const empty = (): Features => ({ peaks: [], heads: [], isles: [], sails: [] });
 
 /** Regions are a few screens wide; region 0 holds the classic frame. */
 const REGION = 2960;
@@ -231,8 +227,6 @@ export class World {
     const out = empty();
     for (let k = c - REACH; k <= c + REACH; k++) {
       const f = this.features(k);
-      out.waves.push(...f.waves);
-      out.boats.push(...f.boats);
       out.peaks.push(...f.peaks);
       out.heads.push(...f.heads);
       out.isles.push(...f.isles);
@@ -245,7 +239,7 @@ export class World {
     let f = this.chunks.get(c);
     if (!f) {
       // The frame holds the print itself; the procedural sea starts either side of it.
-      f = c === 0 || c === 1 ? empty() : this.generate(c);
+      f = (c === 0 || c === 1) && this.original ? empty() : this.generate(c);
       this.chunks.set(c, f);
     }
     return f;
@@ -256,76 +250,22 @@ export class World {
     for (const k of this.chunks.keys()) if (Math.abs(k - c) > REACH + 6) this.chunks.delete(k);
   }
 
-  /** A boat riding wave w at x, sitting a little down in the water. */
-  private boatOn(w: Wave, x: number, len: number, id: number, rowers: number): Boat | null {
-    const at = surfaceAt(waveShape(w), w, x);
-    if (!at) return null;
-    return { id, x, y: at.y + len * 0.04, len, angle: clamp(at.angle * 0.85, -0.6, 0.6), z: w.z + 0.001, rowers, dir: this.dir };
-  }
-
-  /** Whether a great wave wants to rise in chunk c, before checking its neighbours. */
-  private greatRaw(c: number): boolean {
-    if (c >= -1 && c <= 2) return false;
-    const b = this.biomeAt(c * CW + CW / 2), m = this.moodAt(c * CW + CW / 2);
-    const p = { kanagawa: 0.8, swell: 0.3, fuji: 0.08, coast: 0.12, isles: 0.12 }[b] + (m === 'storm' ? 0.2 : 0);
-    return hashFloat(this.s, 11, c) < p;
-  }
-
   private generate(c: number): Features {
     const f = empty(), x0 = c * CW, mid = x0 + CW / 2;
-    const biome = this.biomeAt(mid), mood = this.moodAt(mid), r = new Rng(hash(this.s, 12, c));
-    const rough = { kanagawa: 1, swell: 0.75, fuji: 0.35, coast: 0.45, isles: 0.55 }[biome] + (mood === 'storm' ? 0.25 : 0);
-    const dir = this.dir;
+    const biome = this.biomeAt(mid), r = new Rng(hash(this.s, 12, c));
     let n = 0;
     const id = () => hash(this.s, 13, c, n++);
 
-    if (this.greatRaw(c) && !this.greatRaw(c - 1)) {
-      const h = H * r.range(0.62, 0.88);
-      f.waves.push({
-        id: id(), x: x0 + r.range(0.2, 0.8) * CW, base: H * r.range(1.03, 1.08), h, z: 0,
-        dir, curl: r.range(0.88, 1), back: h * r.range(1.0, 1.25), front: h * r.range(0.38, 0.5), foam: 1,
-      });
-    }
-
-    // Middle distance: swells and curling crests.
-    const mids = Math.round(r.range(0.6, 1.6) + rough * r.range(0.8, 2));
-    for (let i = 0; i < mids; i++) {
-      const d = r.random(), h = H * lerp(0.08, 0.36, Math.pow(r.random(), 1.3)) * lerp(0.55, 1, rough) * lerp(0.6, 1.1, d);
-      f.waves.push({
-        id: id(), x: x0 + r.random() * CW, base: H * lerp(0.85, 0.99, d), h, z: 0,
-        dir, curl: clamp(r.range(0.2, 0.75) + rough * 0.2, 0, 1), back: h * r.range(1.3, 2.4), front: h * r.range(0.55, 1), foam: r.range(0.45, 0.9),
-      });
-    }
-
-    // Foreground swells along the bottom edge.
-    if (r.chance(0.35 + rough * 0.3)) {
-      const h = H * r.range(0.1, 0.26) * lerp(0.7, 1, rough);
-      f.waves.push({
-        id: id(), x: x0 + r.random() * CW, base: H * r.range(1.06, 1.12), h, z: 0,
-        dir, curl: r.range(0.2, 0.6), back: h * r.range(1.4, 2.4), front: h * r.range(0.6, 1), foam: r.range(0.4, 0.8),
-      });
-    }
-
-    // Nearer water prints over farther: depth follows where each wave's foot meets the sea.
-    for (const w of f.waves) w.z = zOf(w.base) + hashFloat(w.id, 1) * 1e-3;
-
-    // Boats ride the lower backs of the bigger waves, the crew bent to their oars.
-    if (biome === 'kanagawa' || biome === 'swell' || r.chance(0.2)) {
-      for (const w of f.waves) {
-        if (w.h < 170 || w.z > 0.85 || !r.chance(biome === 'swell' ? 0.75 : 0.55)) continue;
-        const s = waveShape(w), p = s.top[Math.max(1, Math.floor(r.range(0.12, 0.32) * s.lipAt))];
-        const boat = this.boatOn(w, p[0], clamp(w.h * r.range(0.4, 0.55), 80, 250), id(), r.int(6, 9));
-        if (boat) f.boats.push(boat);
-      }
-    }
-
     // Fuji: once a region, large in the bay, a small far cone elsewhere.
     const k = this.regionOf(mid), center = REGION0 + k * REGION + REGION / 2;
-    if (World.chunkOf(center + (hashFloat(this.s, 14, k) - 0.5) * REGION * 0.4) === c) {
+    // Every edition has its Fuji, far off in the hollow of its great wave.
+    const edition = k === 0 && !this.original;
+    if (edition ? c === 0 : World.chunkOf(center + (hashFloat(this.s, 14, k) - 0.5) * REGION * 0.4) === c) {
       const big = biome === 'fuji';
-      if (big || hashFloat(this.s, 15, k) < 0.45) {
-        const h = H * (big ? r.range(0.2, 0.34) : r.range(0.07, 0.12));
-        f.peaks.push({ id: id(), x: x0 + r.range(0.3, 0.7) * CW, h, w: h * r.range(1.45, 1.75), fuji: true });
+      if (edition || big || hashFloat(this.s, 15, k) < 0.45) {
+        const h = H * (big ? r.range(0.2, 0.34) : r.range(0.06, 0.1));
+        const x = edition ? this.fx(r.range(0.45, 0.75) * FRAME_W) : x0 + r.range(0.3, 0.7) * CW;
+        f.peaks.push({ id: id(), x, h, w: h * r.range(1.45, 1.75), fuji: true });
       }
     }
     if (biome === 'fuji' || biome === 'coast') {
@@ -363,7 +303,4 @@ export class World {
     }
     return f;
   }
-
-  /** Horizontal reach of any wave, so planners can skip ones that can't touch them. */
-  static reach = waveReach;
 }

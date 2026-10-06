@@ -25,19 +25,11 @@ weather. An old radio is the control surface:
 
 ## Every seed is a new painting
 
-Edition 1831 is Hokusai's composition. Every other seed composes its own painting from the same
-parts (the great curling wave and its boat, the small wave that echoes Fuji, the striped swells,
-the wave rising in the corner, the boats with their crews, Fuji):
-
-- a **layout**: one great wave as in the original, two great waves one behind the other, a wall
-  of water filling the sheet, or a lull with only swells and a large, near Fuji;
-- each great wave's **size, lean and place**, and whether it breaks to the right or the left;
-- the **horizon**, which boats are out, and **Fuji** set wherever the sky opens widest;
-- the **carving** itself: finer or bolder fingers of blue, bigger or smaller talons, more or
-  fewer strands and flecks;
-- the **weather**: a clear day, dawn, a red evening, a moonlit night, a squall or snow, each
-  recutting the colour blocks;
-- and over all of it a seeded swell that pushes every curve a little.
+Edition 1831 is Hokusai's composition. Every other edition is a window onto the generated sea
+(see *One sea* below) with a great wave forced into it: its size, place and the way it breaks,
+sometimes a second one behind it, Fuji far off in its hollow, the swell and the smaller crests
+around it, and the **weather** (a clear day, dawn, a red evening, a moonlit night, a squall or
+snow), each recutting the colour blocks.
 
 ![Six editions](docs/editions.png)
 
@@ -45,11 +37,11 @@ The same seed always prints the same sea, so a shared link shows your friend exa
 
 ## Sailing
 
-Set sail and the print opens out, its sheet ending in a deckled edge on the open sea. The sea
-runs on through regions borrowed from the rest of the *Thirty-six Views*: the Kanagawa sea of
-great waves, open swells with fishing boats, a calm bay under a large Fuji, a coast of pine
-headlands, and rocky islets with a shrine gate, each region with its own weather. Its big waves
-are carved the same way as the print's.
+Set sail and you sail straight out of the print: its water carries on past the edges of the
+sheet, under its sky fading into the sea's own. The sea runs on through regions borrowed from the rest of the *Thirty-six Views*: the Kanagawa sea of
+great waves, open swells, a calm bay under a large Fuji, a coast of pine
+headlands, and rocky islets with a shrine gate, each region with its own weather. All of it is one sea,
+carved the same way as the print.
 
 Turn on **life** and the print moves: spray leaps from the curling lips and falls back, skeins
 of seabirds cross, snow drifts down, rain slants in, petals blow past at dawn, and the sun and
@@ -117,9 +109,17 @@ Hokusai's marks:
   water;
 - **flecks** of spray scattered over the blue and the sky.
 
-Every mark is placed by these procedures from the seed. Within an element the blocks are laid
+Every mark is placed by these procedures from the seed. Key lines are carved as the brush drew
+them, swelling and tapering, and a crest's foam is one mass breaking into fingers that split
+into claws, outlined as one silhouette. Within an element the blocks are laid
 down as a printer lays them, lightest first: the paper of the water, pale indigo, blue, deep
 blue, the white of the foam, and last the key block's lines and hooks.
+
+**The press.** Nothing is painted straight onto the sheet. Each chunk is cut into a colour block
+and a key block (a colour laid over a line carves it away), then pulled onto washi in one
+impression: the ink's density is broken up by the plank's grain, the baren's uneven rubbing,
+the paper's fibres and tooth, and pools a little at the edges of each block, and the key block
+sits a fraction out of register. All of it is anchored to the world, so chunks meet seamlessly.
 
 **How close is 1831?** The composition's curves were tuned by an optimiser that nudged each
 control point and carving parameter and kept whatever made the print agree better with the
@@ -127,6 +127,16 @@ original, measured as which ink (sky, foam, blue or boat) covers each cell of th
 thumbnail size. Edition 1831 agrees with Hokusai's print in about 89% of those cells. The
 reference was only used for that measurement and is not part of the project; the print is made
 by the procedures alone, which is also why it can make every other edition.
+
+**One sea.** Beyond Hokusai's own print the waves are not drawn one by one: the sea is one body
+of water, a stack of bands from the horizon to the foot of the sheet, each a continuous surface
+(`src/world/field.ts`). A swell runs through each band as a sum of trochoidal waves; seeded
+packets of energy lift crests with long backs and steep fronts, sheared forward with their
+height; where a packet is steep enough it breaks, and its lip reaches forward and rolls over,
+tighter toward the tip, leaving the hollow open. `src/paint/surf.ts` carves that surface in the
+print's manner: white backs with the blue rising into them in clawed fingers, stripes along the
+surface, a crown of foam on each lip, and one key line along it all. Every mark is seeded by
+where it lies, so the sea is the same however it is cut into chunks.
 
 **An infinite world in chunks.** The world is cut into 740px-wide chunks, each generating its
 features from `hash(seed, chunk)`, and every shape is drawn in world coordinates with a global
@@ -137,17 +147,18 @@ watch the print being pulled.
 | Path | Role |
 | --- | --- |
 | `src/core/` | Seeded RNG and hashing, noise, colour helpers, splines and paths, print primitives |
-| `src/world/kanagawa.ts` | Hokusai's composition, and the composer that makes every other edition from its parts |
+| `src/world/kanagawa.ts` | Hokusai's composition (edition 1831) |
+| `src/world/field.ts` | The sea as one surface: bands, swell, packets of energy, breaking lips |
 | `src/paint/ink.ts` | The carving procedures: lobed edges, talons, crowns, slivers, flecks |
 | `src/paint/kanagawa.ts` | Prints a composition: sky, Fuji, waves, boats and spray, block by block |
 | `src/world/world.ts` | Regions and weather of the endless sea, the colour blocks for each weather, chunked generation |
-| `src/world/wave.ts` | The shape of the sea's waves: back, curling lip, face round the hollow |
-| `src/paint/sea.ts` | The sea's ground, ripples, rows of crests, and every block of each wave |
+| `src/paint/surf.ts` | The field's surface carved in the print's manner |
+| `src/paint/sea.ts` | The sea's ground, the horizon and ripples |
 | `src/paint/sky.ts` | Graded sky, cloud bands, sun and moon, stars, snow and rain |
 | `src/paint/shore.ts` | Fuji, far hills, pine headlands, islets with a shrine gate, distant sails |
-| `src/paint/boats.ts` | Oshiokuri-bune with their crews, oars and the wash over their hulls |
 | `src/paint/cartouche.ts` | The title cartouche and the seed's seal (drawn on the page, for its fonts) |
-| `src/paint/chunks.ts`, `worker.ts`, `pool.ts` | Planning and printing chunks; the washi texture; the worker pool |
+| `src/paint/press.ts` | The press: colour and key blocks pulled onto washi as one impression |
+| `src/paint/chunks.ts`, `worker.ts`, `pool.ts` | Planning and printing chunks; the worker pool |
 | `src/anim/life.ts` | The animation layer: spray, seabirds, weather, breathing sun and moon |
 | `src/audio/music.ts` | The generative lo-fi soundtrack |
 | `src/main.ts`, `src/styles.css` | The studio, the radio, sailing, input, sharing, postcards |
