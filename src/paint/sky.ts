@@ -10,14 +10,21 @@ import { H, HZ } from '../world/world';
 import { cellRange, inPad, L, tintRuns, type ChunkPlan } from './plan';
 
 export function planSky(p: ChunkPlan) {
-  const w = p.world;
+  planSkyGround(p);
+  planClouds(p);
+  planOrbs(p);
+  planWeather(p);
+}
+
+/** The graded sky, with the dark bokashi across the top and a grey one falling to the horizon. */
+export function planSkyGround(p: ChunkPlan) {
   p.items.push({
     layer: L.SKY, key: 0, op: (ctx) => {
       for (const { x, w: rw, t } of tintRuns(p)) {
         const g = ctx.createLinearGradient(0, 0, 0, HZ);
         g.addColorStop(0, css(t.skyTop));
-        g.addColorStop(0.17, css(mix(t.skyTop, t.sky, 0.82)));
-        g.addColorStop(0.32, css(t.sky));
+        g.addColorStop(0.3, css(t.sky));
+        g.addColorStop(0.62, css(mix(t.sky, t.skyLow, 0.15)));
         g.addColorStop(1, css(t.skyLow));
         ctx.fillStyle = g;
         ctx.fillRect(x, 0, rw, HZ + 2);
@@ -25,7 +32,11 @@ export function planSky(p: ChunkPlan) {
     },
   });
 
-  // Banks of cloud: long, flat, rounded at the ends, slightly darker beneath.
+}
+
+/** Banks of cloud: long, flat, tapering bands. */
+export function planClouds(p: ChunkPlan) {
+  const w = p.world;
   for (let row = 0; row < 7; row++) {
     const y0 = H * lerp(0.07, 0.62, row / 6), sp = 520;
     const [i0, i1] = cellRange(p, sp, 320);
@@ -59,7 +70,11 @@ export function planSky(p: ChunkPlan) {
     }
   }
 
-  // Sun or moon.
+}
+
+/** The sun or moon. */
+export function planOrbs(p: ChunkPlan) {
+  const w = p.world;
   for (const o of w.orbsNear(p.x0 - p.pad - 120, p.x1 + p.pad + 120)) {
     if (!inPad(p, o.x, o.r * 3)) continue;
     const t = w.tintAt(o.x);
@@ -82,7 +97,11 @@ export function planSky(p: ChunkPlan) {
     });
   }
 
-  // Weather printed into the sky: stars at night, snow, slanting rain.
+}
+
+/** Weather printed into the sky: stars at night, snow, slanting rain. */
+export function planWeather(p: ChunkPlan) {
+  const w = p.world;
   const sp = 46, [i0, i1] = cellRange(p, sp);
   for (let i = i0; i <= i1; i++) {
     for (let j = 0; j * sp < HZ; j++) {

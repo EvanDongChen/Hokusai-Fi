@@ -3,10 +3,9 @@
 // features looks at neighbouring chunks, so a point always sees the same waves no matter which
 // chunk is being printed.
 //
-// The first frame, x in [0, FRAME_W), follows the composition of Hokusai's "Under the Wave off
-// Kanagawa" (see CLASSIC below): the great wave rearing up on the left, its claws of foam over
-// three boats, a small wave in front echoing Fuji, and Fuji itself, small and snow-capped, far
-// off in the trough. Each seed varies it: it may be mirrored, and it gets its own weather.
+// The first frame, x in [0, FRAME_W), is Hokusai's "Under the Wave off Kanagawa" itself, printed
+// from blocks traced from the original (see kanagawa.ts). Edition 1831 prints it exactly; every
+// other edition warps it a little, may mirror it, and gives it its own weather.
 //
 // Beyond the frame the sea runs on through regions borrowed from the rest of the Thirty-six
 // Views: the Kanagawa sea of great waves, open swells with fishing boats, a calm bay under a
@@ -26,25 +25,6 @@ export const FRAME_W = 1480;
 export const HZ = 800;
 /** How many chunks either side can reach into a point. */
 const REACH = 2;
-
-/** "Under the Wave off Kanagawa", as fractions of the frame width and height. */
-const CLASSIC = {
-  /** x: crest, base: foot, top: crest top, back/front in heights of the frame. */
-  waves: [
-    { x: 0.27, base: 1.05, top: 0.12, curl: 1, back: 0.98, front: 0.4, z: 0.6, foam: 1 },
-    { x: 0.6, base: 1.04, top: 0.7, curl: 0.42, back: 0.16, front: 0.14, z: 0.86, foam: 0.75 },
-    { x: 0.9, base: 0.94, top: 0.5, curl: 0.66, back: 0.32, front: 0.18, z: 0.42, foam: 0.85 },
-    { x: 0.04, base: 1.12, top: 0.86, curl: 0.35, back: 0.3, front: 0.2, z: 0.93, foam: 0.5 },
-    { x: 0.75, base: 0.86, top: 0.78, curl: 0.5, back: 0.12, front: 0.06, z: 0.3, foam: 0.6 },
-  ],
-  /** Boats: the centre of the waterline, length, tilt, and the depth they sit at among the waves. */
-  boats: [
-    { x: 0.2, y: 0.76, len: 0.26, angle: 0.3, z: 0.61, rowers: 8 },
-    { x: 0.47, y: 0.825, len: 0.21, angle: -0.08, z: 0.61, rowers: 8 },
-    { x: 0.81, y: 0.6, len: 0.19, angle: -0.34, z: 0.43, rowers: 7 },
-  ],
-  fuji: { x: 0.645, h: 0.1, w: 0.085 },
-};
 
 export type Biome = 'kanagawa' | 'swell' | 'fuji' | 'coast' | 'isles';
 export type Mood = 'day' | 'dawn' | 'dusk' | 'night' | 'storm' | 'snow';
@@ -139,6 +119,10 @@ export class World {
   readonly dir: 1 | -1;
   /** Weather of the gallery print. */
   readonly mood: Mood;
+  /** How far this edition's swell pushes the print's blocks, in world px; 0 for the original. */
+  readonly warp: number;
+  /** Whether this is edition 1831, the print exactly as cut. */
+  readonly original: boolean;
   private chunks = new Map<number, Features>();
   private tintCache = new Map<number, Tint>();
 
@@ -146,9 +130,11 @@ export class World {
     this.seed = seed;
     this.s = hashString(seed);
     const r = new Rng(hash(this.s, 1));
-    this.flipped = r.chance(0.22);
+    this.original = seed === '1831';
+    this.flipped = !this.original && r.chance(0.22);
     this.dir = this.flipped ? -1 : 1;
-    this.mood = r.chance(0.42) ? 'day' : weighted(r, MOODS);
+    this.mood = this.original || r.chance(0.42) ? 'day' : weighted(r, MOODS);
+    this.warp = this.original ? 0 : r.range(16, 46);
   }
 
   static chunkOf(x: number) { return Math.floor(x / CW); }
@@ -258,7 +244,8 @@ export class World {
   features(c: number): Features {
     let f = this.chunks.get(c);
     if (!f) {
-      f = c === 0 || c === 1 ? this.classic(c) : this.generate(c);
+      // The frame holds the print itself; the procedural sea starts either side of it.
+      f = c === 0 || c === 1 ? empty() : this.generate(c);
       this.chunks.set(c, f);
     }
     return f;
@@ -269,38 +256,11 @@ export class World {
     for (const k of this.chunks.keys()) if (Math.abs(k - c) > REACH + 6) this.chunks.delete(k);
   }
 
-  private classicWaves(): Wave[] {
-    return CLASSIC.waves.map((cw, i) => {
-      const j = new Rng(hash(this.s, 7, i));
-      const top = cw.top + j.range(-0.015, 0.015) * (i === 0 ? 1 : 0.5);
-      return {
-        id: hash(this.s, 8, i), x: this.fx(cw.x * FRAME_W) + j.range(-8, 8), base: cw.base * H, h: (cw.base - top) * H, z: cw.z,
-        dir: this.dir, curl: clamp(cw.curl + j.range(-0.04, 0.03), 0, 1), back: cw.back * H, front: cw.front * H, foam: cw.foam,
-      };
-    });
-  }
-
   /** A boat riding wave w at x, sitting a little down in the water. */
   private boatOn(w: Wave, x: number, len: number, id: number, rowers: number): Boat | null {
     const at = surfaceAt(waveShape(w), w, x);
     if (!at) return null;
     return { id, x, y: at.y + len * 0.04, len, angle: clamp(at.angle * 0.85, -0.6, 0.6), z: w.z + 0.001, rowers, dir: this.dir };
-  }
-
-  private classic(c: number): Features {
-    const f = empty(), r = new Rng(hash(this.s, 6));
-    const inChunk = (x: number) => World.chunkOf(x) === c;
-    const waves = this.classicWaves();
-    for (const w of waves) if (inChunk(w.x)) f.waves.push(w);
-    const nBoats = r.chance(0.8) ? 3 : 2;
-    CLASSIC.boats.slice(0, nBoats).forEach((b, i) => {
-      const x = this.fx(b.x * FRAME_W);
-      if (!inChunk(x)) return;
-      f.boats.push({ id: hash(this.s, 9, i), x, y: b.y * H, len: b.len * FRAME_W, angle: b.angle * this.dir, z: b.z, rowers: b.rowers, dir: this.dir });
-    });
-    const fj = CLASSIC.fuji, fx = this.fx(fj.x * FRAME_W);
-    if (inChunk(fx)) f.peaks.push({ id: hash(this.s, 10), x: fx, h: fj.h * H * r.range(0.92, 1.08), w: fj.w * FRAME_W, fuji: true });
-    return f;
   }
 
   /** Whether a great wave wants to rise in chunk c, before checking its neighbours. */

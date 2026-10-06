@@ -18,7 +18,8 @@ export const L = {
   SKY: 0, WEATHER: 0.5, CLOUD: 1, ORB: 1.5, LAND: 2, SEA: 3, RIPPLE: 3.2, SAIL: 3.5, WAVE: 4,
 } as const;
 
-export interface Item { layer: number; key: number; op: Op; }
+/** One draw operation in a chunk, with the block (ink) it belongs to when it is part of the print. */
+export interface Item { layer: number; key: number; op: Op; block?: string; }
 
 export interface ChunkPlan {
   world: World;

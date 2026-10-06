@@ -2,6 +2,8 @@
 import { Rng } from '../core/rng';
 import { CW, H, World } from '../world/world';
 import { planBoats } from './boats';
+import { context2d, makeCanvas, type AnyCanvas } from './canvas';
+import { planPrint, preparePrint } from './kanagawa';
 import type { ChunkPlan, Op } from './plan';
 import { planSea } from './sea';
 import { planShore } from './shore';
@@ -9,32 +11,15 @@ import { planSky } from './sky';
 
 const PAD = 40;
 
-type AnyCanvas = OffscreenCanvas | HTMLCanvasElement;
-
-/** A 2D canvas that works both in a worker and on the page. */
-export function makeCanvas(w: number, h: number): AnyCanvas {
-  if (typeof OffscreenCanvas !== 'undefined') return new OffscreenCanvas(w, h);
-  const c = document.createElement('canvas');
-  c.width = w;
-  c.height = h;
-  return c;
-}
-
-/**
- * Print code is written against the page's context type; an offscreen one has the same drawing API.
- * Chunk canvases are rasterised on the CPU (willReadFrequently): thousands of shapes sent to the GPU
- * would queue up in front of the page's own frames and make scrolling stutter.
- */
-export function context2d(c: AnyCanvas): CanvasRenderingContext2D {
-  return c.getContext('2d', { willReadFrequently: true }) as unknown as CanvasRenderingContext2D;
-}
-
 export function planChunk(world: World, c: number): Op[] {
   const p: ChunkPlan = { world, c, x0: c * CW, x1: (c + 1) * CW, pad: PAD, near: world.near(c), items: [] };
-  planSky(p);
-  planShore(p);
-  planSea(p);
-  planBoats(p);
+  if (c === 0 || c === 1) planPrint(p);
+  else {
+    planSky(p);
+    planShore(p);
+    planSea(p);
+    planBoats(p);
+  }
   p.items.sort((a, b) => a.layer - b.layer || a.key - b.key);
   const ops = p.items.map((i) => i.op);
   ops.push((ctx) => paper(ctx, p.x0, p.x1));
@@ -71,7 +56,7 @@ function paper(ctx: CanvasRenderingContext2D, x0: number, x1: number) {
     tc.lineCap = 'round';
     for (let k = 0; k < 220; k++) {
       const x = rng.random() * S, y = rng.random() * S, a = rng.random() * Math.PI * 2, l = rng.range(6, 26);
-      tc.strokeStyle = rng.chance(0.5) ? 'rgba(150,130,100,0.22)' : 'rgba(255,255,250,0.6)';
+      tc.strokeStyle = rng.chance(0.5) ? 'rgba(150,130,100,0.12)' : 'rgba(255,255,250,0.5)';
       tc.lineWidth = rng.range(0.4, 1.1);
       tc.beginPath();
       tc.moveTo(x, y);
@@ -81,7 +66,7 @@ function paper(ctx: CanvasRenderingContext2D, x0: number, x1: number) {
   }
   ctx.save();
   ctx.globalCompositeOperation = 'multiply';
-  ctx.globalAlpha = 0.85;
+  ctx.globalAlpha = 0.5;
   ctx.fillStyle = ctx.createPattern(paperTile as CanvasImageSource, 'repeat')!;
   ctx.fillRect(x0, 0, x1 - x0, H);
   ctx.restore();
@@ -105,6 +90,7 @@ export async function paintChunk(
   const { w, h, scale: s } = chunkPixels(scale);
   const canvas = makeCanvas(w, h), ctx = context2d(canvas);
   ctx.setTransform(s, 0, 0, s, -c * CW * s, 0);
+  if (c === 0 || c === 1) await preparePrint();
   const ops = planChunk(world, c);
   let i = 0, last = performance.now();
   await report(canvas, 0, ops.length, false);

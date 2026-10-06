@@ -9,8 +9,8 @@
 //    spray falling from them like snow.
 
 import { css, mix, type RGB } from '../core/color';
-import { clamp, lerp } from '../core/math';
-import { inkedUnion, keyline, offset, polyPath, type Pt } from '../core/print';
+import { clamp, lerp, smoothstep } from '../core/math';
+import { fillPoly, inkedUnion, keyline, offset, polyPath, type Pt } from '../core/print';
 import { hash, hashFloat, Rng } from '../core/rng';
 import { lipSweep, waveReach, waveShape, zOf, type Wave } from '../world/wave';
 import { H, HZ, type Tint, type World } from '../world/world';
@@ -145,29 +145,40 @@ export function planWave(p: ChunkPlan, w: Wave) {
     ctx.fill();
   });
 
-  // Light bands carved along the back and on round into the curl.
-  if (w.h > 34) {
-    const sp = clamp(w.h * 0.022, 3, 16), K = clamp(Math.round(w.h / 55), 1, 13);
-    const bands: { pts: Pt[]; bw: number }[] = [];
-    for (let k = 1; k <= K; k++) {
-      const d = sp * (k * 1.25 + 0.6), bw = sp * r.range(0.3, 0.45);
-      const from = Math.floor(s.lipAt * r.range(0.2, 0.75));
-      // Follow the lip only while it is thick enough to hold the band, so bands never cross.
-      let to = s.lipAt;
-      while (to + 1 < s.top.length && s.lip[to + 1 - s.lipAt].th > (d + bw) * 1.15) to++;
-      to -= r.int(0, 2);
-      const seg = s.top.slice(from, to + 1);
-      if (seg.length < 3) continue;
-      bands.push({ pts: offset(seg, w.dir * d), bw });
+  // The back of the wave is paper, fringed into the blue: a pale-indigo band under a white one,
+  // both sending uneven fingers down toward the face, as on the great wave's back.
+  if (w.h > 24) {
+    const end = Math.min(s.top.length - 1, s.lipAt + Math.round((s.top.length - s.lipAt) * 0.35));
+    const seg = s.top.slice(0, end + 1);
+    const wide = seg.map((_, i) => {
+      const f = Math.min(1, i / Math.max(1, s.lipAt));
+      return w.h * lerp(0.1, 0.4, smoothstep(0, 1, f)) * (i > s.lipAt ? Math.max(0.2, 1 - (i - s.lipAt) / Math.max(1, end - s.lipAt)) : 1);
+    });
+    const period = Math.max(6, w.h * r.range(0.05, 0.08));
+    const aqua = fringe(seg, wide, w.dir, period, r.random() * 10, w.id, 1, 0.7);
+    const white = fringe(seg, wide.map((v) => v * 0.68), w.dir, period * 0.8, r.random() * 10, w.id, 2, 0.9);
+    const bandCol = mix(t.band, t.seaFar, (1 - w.z) * 0.2), white0 = mix(t.foam, t.band, (1 - w.z) * 0.15);
+    // White flecks across the blue face.
+    const flecks: [number, number, number][] = [];
+    if (w.h > 110) {
+      const n = Math.round(w.h * 0.12 * w.foam), edge = s.inner.slice().reverse().concat(s.face);
+      for (let k = 0; k < n; k++) {
+        const e = edge[r.int(0, edge.length - 2)], d = w.h * r.range(0.02, 0.22);
+        const q = offset([e, edge[Math.min(edge.length - 1, edge.indexOf(e) + 1)]], -w.dir * d)[0];
+        flecks.push([q[0], q[1], clamp(w.h * r.range(0.002, 0.006), 0.8, 4)]);
+      }
     }
-    const bandCol = mix(t.band, t.seaFar, (1 - w.z) * 0.2);
     push((ctx) => {
       ctx.save();
       ctx.beginPath();
       polyPath(ctx, s.body);
       ctx.clip();
-      for (const b of bands) keyline(ctx, b.pts, b.bw, bandCol, 0.92);
-      for (const b of bands) keyline(ctx, offset(b.pts, w.dir * b.bw * 0.5), lw * 0.75, key0, 0.9);
+      fillPoly(ctx, aqua, bandCol);
+      fillPoly(ctx, white, white0);
+      ctx.fillStyle = css(white0);
+      ctx.beginPath();
+      for (const [x, y, rr] of flecks) { ctx.moveTo(x + rr, y); ctx.arc(x, y, rr, 0, Math.PI * 2); }
+      ctx.fill();
       ctx.restore();
     });
   }
@@ -182,6 +193,30 @@ export function planWave(p: ChunkPlan, w: Wave) {
   if (w.h > 16) claws(s, w, shapes, r);
   if (w.curl > 0.55 && w.h > 60) spray(s, w, dots, r);
   if (shapes.length || dots.length) push((ctx) => inkedUnion(ctx, shapes, t.foam, key0, lw * 0.6, dots));
+}
+
+/**
+ * A band along a silhouette, its inner edge broken into fingers of uneven length: `base` is the
+ * width at each point, `amp` how far the fingers reach beyond it.
+ */
+function fringe(seg: Pt[], base: number[], dir: number, period: number, ph: number, id: number, salt: number, amp: number): Pt[] {
+  const n = seg.length, nrm = offset(seg, 1).map((q, i) => [q[0] - seg[i][0], q[1] - seg[i][1]] as Pt);
+  const outer: Pt[] = [], inner: Pt[] = [];
+  let u = 0;
+  for (let i = 0; i < n - 1; i++) {
+    for (let j = 0; j < 4; j++) {
+      const f = j / 4, a = seg[i], b = seg[i + 1];
+      const x = lerp(a[0], b[0], f), y = lerp(a[1], b[1], f);
+      const nx = lerp(nrm[i][0], nrm[i + 1][0], f), ny = lerp(nrm[i][1], nrm[i + 1][1], f);
+      const q = u / period + ph + 0.35 * Math.sin(u / period * 0.7), k = Math.floor(q);
+      const finger = Math.pow(Math.sin((q - k) * Math.PI), 4) * (0.2 + hashFloat(id, salt, k));
+      const wd = lerp(base[i], base[i + 1], f) * (1 - amp * 0.4 + amp * finger);
+      outer.push([x - nx * dir * 2, y - ny * dir * 2]);
+      inner.push([x + nx * dir * wd, y + ny * dir * wd]);
+      u += Math.hypot(b[0] - a[0], b[1] - a[1]) / 4;
+    }
+  }
+  return outer.concat(inner.reverse());
 }
 
 function foamBand(s: ReturnType<typeof waveShape>, w: Wave, out: Pt[][], r: Rng) {
