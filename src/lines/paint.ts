@@ -5,32 +5,34 @@
 // each band follows the surface exactly, round the hood and into the hollow, and can never fold
 // over itself. A band's depth varies along the wave, so its lower edge rolls.
 //
-// Big waves (the great wave, the domes, the trough in front) are Prussian blue, streaked along
-// their length with lighter blue running parallel to the surface; a band of white foam lies along
-// the top, deep on the wave's back and thin on its face, edged with pale blue, and the white drips
-// down from it in fingers. Small waves are white above and blue below, mottled where they meet
-// with splotches of white, pale blue and dark blue.
+// Below its foam a wave is Prussian blue, streaked with lighter blue (the stripes). Over its top
+// lies the foam, as in the print: white, tinted pale aqua toward the blue, deep on the backs of the
+// waves and over the small peaks, only a rim down the great wave's face. The blue shows through
+// the foam as dashes lying along the surface, short and sparse near the crest, longer and denser
+// toward the blue, until they merge into it. On the big waves the blue also rises into the foam in
+// rounded fingers, flecked with white. On the crests the foam breaks into claws (claws.ts).
 //
 // Layers, in the order they are painted (each can be hidden in the debug panel):
-//   body       the wave's water, dark blue
-//   stripes    lighter-blue streaks along big waves
-//   pale       the pale-blue band just under the foam
-//   foam       the white band along the top
-//   drips      white fingers leaking down from the foam
-//   splotches  mottling where white meets blue (small waves)
-//   outline    the key line along the surface
+//   body      the wave's water, dark blue
+//   stripes   lighter-blue strands below the foam
+//   foam      the white cap along the top, tinted pale toward the blue
+//   dashes    blue showing through the foam in long tapering dashes
+//   fingers   the blue rising into the foam in rounded fingers, with white specks (big waves)
+//   outline   the key line along the surface
+//   claws     the fractal splashes on the crests
 
 import { smoothstep } from '../core/math';
 import { Noise } from '../core/noise';
 import { resample } from '../core/print';
 import { Rng } from '../core/rng';
+import { claw } from './claws';
 import type { Pt, Sea, Wave } from './waves';
 
-export const LAYERS = ['body', 'stripes', 'pale', 'foam', 'drips', 'splotches', 'outline'] as const;
+export const LAYERS = ['body', 'stripes', 'foam', 'dashes', 'fingers', 'outline', 'claws'] as const;
 export type LayerName = (typeof LAYERS)[number];
 
 export const INK = {
-  sky: '#ead9b8', dark: '#203e71', mid: '#3268ab', blue: '#4680c6', light: '#79a6d8', pale: '#a9c9d9', white: '#f5f0e3', key: '#152448',
+  sky: '#ead9b8', dark: '#203e71', mid: '#3268ab', blue: '#4680c6', light: '#79a6d8', pale: '#b4d0d8', tint: '#cfe1dc', white: '#f4f1e4', key: '#152448',
 } as const;
 
 export interface PaintOpts {
@@ -79,7 +81,7 @@ function frame(sea: Sea, wv: Wave): Frame {
 }
 
 function paintWave(ctx: CanvasRenderingContext2D, sea: Sea, wv: Wave, show: Set<LayerName>, tint: string | null) {
-  const f = frame(sea, wv), { P, S, N } = f, r = new Rng(wv.id), noise = new Noise(r), h = wv.h, big = isBig(sea, wv);
+  const f = frame(sea, wv), { P, S, N } = f, r = new Rng(wv.id), noise = new Noise(r), h = wv.h;
   /** Smooth noise along the wave, -1..1, a different strand for each salt. */
   const along = (i: number, scale: number, salt: number) => noise.fbm(S[i] / scale, salt * 7.31, 2);
 
@@ -92,19 +94,31 @@ function paintWave(ctx: CanvasRenderingContext2D, sea: Sea, wv: Wave, show: Set<
   water.closePath();
   ctx.clip(water);
 
-  // How deep the white lies under the surface. On a big wave it caps the whole upper back and
-  // the top of the hood, and is only a thin rim down the face; its lower edge is cut by narrow
-  // fingers of blue rising into it. On a small wave it is a white cap over the top.
-  const period = h * r.range(0.07, 0.1);
+  let crest = 0;
+  for (let i = 1; i < P.length; i++) if (P[i][1] < P[crest][1]) crest = i;
+  const great = wv.kind === 'great' || wv.kind === 'dome', peaky = wv.kind === 'peak' || wv.kind === 'hook';
+
+  // How deep the foam lies under the surface. The great wave's back and the top of its hood are
+  // capped deep in white, its face only rimmed; a peak is white over most of its upper part,
+  // deepest under its point; the long trough has a thin cap.
+  // The hood's tip: the most forward point of the line above the lower face. Only the hood's
+  // outer surface, from the crest to here, is foamed; its underside, over the hollow, is not.
+  const fwd = sea.dir, ahead = (i: number) => (fwd > 0 ? i > crest : i < crest);
+  let tip = crest;
+  for (let i = 0; i < P.length; i++) if (great && ahead(i) && f.up[i] > 0.3 && f.up[i] < 0.8 && P[i][0] * fwd > P[tip][0] * fwd) tip = i;
+  const onHood = (i: number) => (fwd > 0 ? i > crest && i <= tip : i < crest && i >= tip);
   const foam = P.map((_, i) => {
     const v = 0.5 + 0.5 * along(i, h * 0.35, 1), u = f.up[i];
-    const d = big
-      ? f.back[i] ? h * (0.02 + (0.24 + 0.16 * v) * smoothstep(0.12, 0.55, u)) : u > 0.68 ? h * (0.05 + 0.06 * v) : h * 0.018
-      : h * (0.1 + 0.18 * (f.back[i] ? 1 : 0.5) * v + 0.06 * v);
-    const finger = Math.pow(Math.max(0, Math.sin((S[i] / period) * Math.PI * 2 + 3 * along(i, h * 0.6, 3))), 8);
-    return d * (1 - (big ? 0.6 : 0.35) * finger * smoothstep(h * 0.06, h * 0.15, d));
+    if (great) {
+      // Deep on the back, but shallowing toward the crest, so it does not bulge round into the hood.
+      if (f.back[i]) return h * (0.03 + (0.24 + 0.14 * v) * smoothstep(0.15, 0.65, u) * (0.4 + 0.6 * smoothstep(0, h * 0.45, Math.abs(S[crest] - S[i]))));
+      // Near the crest it meets the back's foam, so no blue wedge opens between them.
+      return onHood(i) ? (h * (0.04 + 0.04 * v) + h * 0.12 * (1 - smoothstep(0, h * 0.3, Math.abs(S[i] - S[crest])))) * (1 - 0.7 * smoothstep(0.75, 1, (S[i] - S[crest]) * fwd / ((S[tip] - S[crest]) * fwd || 1))) : h * 0.014;
+    }
+    // A peak is white most of the way down its flanks, as the print's swells are.
+    if (peaky) return h * (0.3 + 0.5 * smoothstep(0, 1, u)) * (0.8 + 0.2 * v);
+    return h * (0.06 + 0.06 * v);
   });
-  const pale = P.map((_, i) => foam[i] + h * (big ? 0.025 : 0.06) * (0.6 + 0.6 * (0.5 + 0.5 * along(i, h * 0.25, 2))));
 
   if (show.has('body')) {
     ctx.fillStyle = tint ?? INK.dark;
@@ -114,6 +128,7 @@ function paintWave(ctx: CanvasRenderingContext2D, sea: Sea, wv: Wave, show: Set<
   if (show.has('stripes')) {
     ctx.save();
     ctx.clip(water);
+    if (peaky) peakStripes(ctx, sea, wv, f, r, along);
     for (const b of bandsOf(sea, wv, f, r, along)) {
       ctx.save();
       if (b.half) {
@@ -133,35 +148,73 @@ function paintWave(ctx: CanvasRenderingContext2D, sea: Sea, wv: Wave, show: Set<
     ctx.restore();
   }
 
-  // White leaking down from the foam like paint: a narrow neck ending in a round drop, in all
-  // lengths, hanging from the foam's lower edge only where it is thick. Their pale-blue halos go
-  // down before the foam, so the white covers them except where a drop hangs below it.
-  const drops: { at: Pt; dir: Pt; len: number; w: number }[] = [];
-  if (show.has('drips')) {
-    const n = Math.round(S[S.length - 1] / (h * (big ? 0.05 : 0.09)));
+  if (show.has('foam')) {
+    // Pale aqua down to the foam's lower edge, then white over its upper part.
+    band(ctx, P, (i) => foam[i], INK.tint);
+    band(ctx, P, (i) => foam[i] * (0.5 + 0.2 * along(i, h * 0.3, 4)), INK.white);
+  }
+
+  if (show.has('dashes')) {
+    // The blue showing through the foam: dashes lying along the surface, each tapering at both
+    // ends, dark blue with a mid-blue rim in a pale halo. Near the crest they are short, thin and
+    // few; toward the foam's lower edge longer, broader and more, till they merge into the blue.
+    // Sized in sheet units, like the stripes, so small waves get fewer rather than finer ones.
+    const n = Math.round(S[S.length - 1] / (sea.H * (great ? 0.01 : 0.008)));
+    for (let k = 0; k < n; k++) {
+      const i = r.int(1, P.length - 2);
+      // Not where the line drops steeply away off the sheet's edge.
+      if (foam[i] < sea.H * 0.035 || Math.abs(N[i][1]) < 0.35 || P[i][0] < 0 || P[i][0] > sea.W) continue;
+      const t = Math.pow(r.random(), 0.6), d = t * foam[i] * 1.05;
+      const len = sea.H * (0.04 + 0.16 * Math.pow(t, 1.3)) * r.range(0.6, 1.4), w = sea.H * (0.005 + 0.014 * t) * r.range(0.7, 1.3);
+      // The run of samples it lies along, kept to one side of a peak's point.
+      let i0 = i, i1 = i;
+      while (i0 > 0 && S[i] - S[i0 - 1] < len / 2 && !(peaky && i0 - 1 === crest)) i0--;
+      while (i1 < P.length - 1 && S[i1 + 1] - S[i] < len / 2 && !(peaky && i1 + 1 === crest)) i1++;
+      if (i1 - i0 < 2) continue;
+      for (const [col, grow] of [[INK.tint, 1.6], [INK.mid, 1.3], [INK.dark, 1]] as const) {
+        const top: Pt[] = [], bot: Pt[] = [];
+        for (let j = i0; j <= i1; j++) {
+          const u = (j - i0) / (i1 - i0), hw = ((w * grow) / 2) * Math.pow(Math.sin(Math.PI * u), 0.7);
+          // Under a peak's point the two flanks' normals cross, so there a dash lies straight below
+          // the surface rather than along its normal (the line is a function of x on a peak).
+          const c: Pt = peaky ? [P[j][0], P[j][1] + d] : [P[j][0] + N[j][0] * d, P[j][1] + N[j][1] * d];
+          top.push([c[0] - N[j][0] * hw, c[1] - N[j][1] * hw]);
+          bot.push([c[0] + N[j][0] * hw, c[1] + N[j][1] * hw]);
+        }
+        fill(ctx, top.concat(bot.reverse()), col);
+      }
+    }
+  }
+
+  if (great && show.has('fingers')) {
+    // Where the foam lies deep, the blue rises into it in rounded fingers leaning forward, with
+    // narrow runs of white between them; and the blue below is flecked with white.
+    const period = Math.max(16, h * r.range(0.045, 0.06));
+    ctx.lineCap = 'round';
+    for (let s0 = r.range(0, period); s0 < S[S.length - 1]; s0 += period * r.range(0.8, 1.2)) {
+      const i = S.findIndex((v) => v >= s0);
+      if (i < 1 || foam[i] < h * 0.1) continue;
+      // Broad, short and rounded, packed side by side, so only narrow white runs between them.
+      const L = foam[i] * r.range(0.2, 0.45), fw = period * r.range(0.6, 0.72);
+      const root: Pt = [P[i][0] + N[i][0] * (foam[i] + fw), P[i][1] + N[i][1] * (foam[i] + fw)];
+      const tip: Pt = [P[i][0] + N[i][0] * (foam[i] - L) + sea.dir * L * 0.35, P[i][1] + N[i][1] * (foam[i] - L)];
+      const mid: Pt = [(root[0] + tip[0]) / 2 - sea.dir * L * 0.1, (root[1] + tip[1]) / 2];
+      ctx.strokeStyle = INK.dark;
+      ctx.lineWidth = fw;
+      ctx.beginPath();
+      ctx.moveTo(root[0], root[1]);
+      ctx.quadraticCurveTo(mid[0], mid[1], tip[0], tip[1]);
+      ctx.stroke();
+    }
+    ctx.fillStyle = INK.white;
+    const n = Math.round(S[S.length - 1] / (h * 0.012));
     for (let k = 0; k < n; k++) {
       const i = r.int(1, P.length - 2);
       if (foam[i] < h * 0.06) continue;
-      const d = foam[i] * 0.97, nx = N[i][0], ny = N[i][1] + 0.8, l = Math.hypot(nx, ny) || 1;
-      drops.push({ at: [P[i][0] + N[i][0] * d, P[i][1] + N[i][1] * d], dir: [nx / l, ny / l], len: h * Math.pow(r.random(), 1.6) * (big ? 0.12 : 0.07) + h * 0.015, w: h * r.range(0.018, 0.035) });
-    }
-    ctx.fillStyle = INK.pale;
-    for (const dr of drops) drop(ctx, dr.at, dr.dir, dr.len, dr.w * 1.5);
-  }
-  if (show.has('pale')) band(ctx, P, (i) => pale[i], INK.pale);
-  if (show.has('foam')) band(ctx, P, (i) => foam[i], INK.white);
-  ctx.fillStyle = INK.white;
-  for (const dr of drops) drop(ctx, dr.at, dr.dir, dr.len, dr.w);
-
-  if (!big && show.has('splotches')) {
-    // Mottling where the white meets the blue: rounded splotches of all three, scattered about
-    // the foam's lower edge, the dark ones a little deeper, the white a little higher.
-    const n = Math.round(S[S.length - 1] / (h * 0.05));
-    for (let k = 0; k < n; k++) {
-      const i = r.int(0, P.length - 1), pick = r.random();
-      const [col, depth] = pick < 0.35 ? [INK.white, foam[i] * r.range(0.7, 1.15)] : pick < 0.7 ? [INK.pale, pale[i] * r.range(0.85, 1.25)] : [INK.dark, pale[i] * r.range(1.1, 1.6)];
-      ctx.fillStyle = col;
-      splotch(ctx, [P[i][0] + N[i][0] * depth, P[i][1] + N[i][1] * depth], h * r.range(0.025, 0.07), r);
+      const d = foam[i] * r.range(0.6, 1.4) + h * r.range(0, 0.12), rad = Math.min(3.5, Math.max(1.2, h * r.range(0.003, 0.007)));
+      ctx.beginPath();
+      ctx.ellipse(P[i][0] + N[i][0] * d, P[i][1] + N[i][1] * d, rad, rad * r.range(0.6, 1), r.range(0, 3), 0, Math.PI * 2);
+      ctx.fill();
     }
   }
   ctx.restore();
@@ -174,6 +227,49 @@ function paintWave(ctx: CanvasRenderingContext2D, sea: Sea, wv: Wave, show: Set<
     ctx.moveTo(P[0][0], P[0][1]);
     for (const p of P) ctx.lineTo(p[0], p[1]);
     ctx.stroke();
+  }
+
+  if (show.has('claws')) clawsOf(ctx, sea, wv, f, r, foam, crest);
+}
+
+/**
+ * The splashes along a wave's crest. The great wave breaks into claws all along the top of its
+ * hood, from the dome to the tip, in two rows: the inner ones rooted in the foam, the outer ones
+ * on its edge over them, so the crest's whole silhouette is claws. A dome and the peaks only break
+ * into a few small ones about their tops.
+ */
+function clawsOf(ctx: CanvasRenderingContext2D, sea: Sea, wv: Wave, f: Frame, r: Rng, foam: number[], crest: number) {
+  const { P, S, N } = f, h = wv.h, fwd = sea.dir;
+  const ink = { white: INK.white, pale: INK.pale, key: INK.key };
+  /** Claws every `step` along the line between indices a and b, rooted `depth` (a share of the foam) in. */
+  const row = (a: number, b: number, size: number, step: number, depth: number, gen: number) => {
+    const lo = Math.min(a, b), hi = Math.max(a, b);
+    for (let s0 = S[lo] + r.range(0, step); s0 < S[hi]; s0 += step * r.range(0.75, 1.25)) {
+      const i = S.findIndex((v) => v >= s0);
+      if (i < 0) break;
+      // Out of the surface and forward, the way the wave breaks.
+      const ox = -N[i][0] * 0.75 + fwd * 0.6, oy = -N[i][1] * 0.75 - 0.15;
+      const d = depth * foam[i] + size * 0.2, len = size * r.range(0.8, 1.2);
+      claw(ctx, r, P[i][0] + N[i][0] * d, P[i][1] + N[i][1] * d, Math.atan2(oy, ox) + r.range(-0.25, 0.25),
+        { len, w: len * r.range(0.32, 0.42), turn: fwd, depth: gen, line: Math.min(2.6, Math.max(1, len * 0.045)) }, ink);
+    }
+  };
+  if (wv.kind === 'great') {
+    // From the top of the back, over the dome, to the hood's tip.
+    const ahead = (i: number) => (fwd > 0 ? i > crest : i < crest);
+    let tip = crest;
+    for (let i = 0; i < P.length; i++) if (ahead(i) && f.up[i] > 0.3 && f.up[i] < 0.8 && P[i][0] * fwd > P[tip][0] * fwd) tip = i;
+    let from = crest;
+    while (from - fwd >= 0 && from - fwd < P.length && f.up[from - fwd] > 0.78) from -= fwd;
+    const size = Math.min(80, Math.max(22, h * 0.13));
+    row(from, tip, size * 0.85, size * 0.75, 0.55, 2);
+    row(from, tip, size, size * 0.6, 0, 2);
+  } else if (wv.kind !== 'trough') {
+    let a = crest, b = crest;
+    while (a > 0 && f.up[a - 1] > 0.72) a--;
+    while (b < P.length - 1 && f.up[b + 1] > 0.72) b++;
+    const size = Math.min(40, Math.max(12, h * 0.12));
+    row(a, b, size, size * 0.8, 0, 1);
   }
 }
 
@@ -319,68 +415,38 @@ function bandsOf(sea: Sea, wv: Wave, f: Frame, r: Rng, along: (i: number, scale:
         if (up_.length > 2) out.push({ pts: up_.concat(dn.reverse()), col: k % 2 === 0 ? INK.blue : INK.mid });
       }
     }
-  } else {
-    // A peak: nested chevrons, the wave's own outline shifted straight down one below another
-    // until they reach its foot. Each is sharp under the point and runs out along both flanks, so
-    // the strands lie parallel to the flanks and fill the wave right through, the middle under
-    // its point included. Each strand swells and thins along its length, now and then to nothing.
-    const L = P.map((_, i) => i).filter((i) => P[i][0] >= -50 && P[i][0] <= sea.W + 50);
-    // Strands the same size as the great wave's, whatever the peak's size: a small peak simply
-    // has fewer. Each is the surface offset straight into the water, so it keeps its width on a
-    // steep flank as on a gentle one; under the point, where the two flanks' offsets cross, the
-    // loop they make is cut away, leaving a clean V.
-    const W0 = sea.H * r.range(0.021, 0.025), G0 = sea.H * r.range(0.016, 0.02);
-    let off = W0 * 0.6;
-    for (let k = 0; off < h * 1.1; k++) {
-      const grow = 1 + k * 0.03, w = W0 * grow;
-      // Split where the strand thins to nothing, so it swells and breaks along its length.
-      let run: number[] = [];
-      const flush = () => {
-        if (run.length > 2) {
-          const top = untangle(run.map((i): Pt => [P[i][0] + N[i][0] * off, P[i][1] + N[i][1] * off]));
-          const bot = untangle(run.map((i) => {
-            const ww = w * Math.max(0, 0.85 + 0.5 * along(i, h * 0.5, 30 + k));
-            return [P[i][0] + N[i][0] * (off + ww), P[i][1] + N[i][1] * (off + ww)] as Pt;
-          }));
-          out.push({ pts: top.concat(bot.reverse()), col: k % 2 === 0 ? INK.blue : INK.mid });
-        }
-        run = [];
-      };
-      for (const i of L) {
-        if (w * Math.max(0, 0.85 + 0.5 * along(i, h * 0.5, 30 + k)) < 0.6) flush();
-        else run.push(i);
-      }
-      flush();
-      off += w + G0 * grow;
-    }
   }
+  // A peak's strands are painted by peakStripes().
   return out;
 }
 
 /**
- * A polyline with the loops cut out of it: where it crosses itself (as an offset of a sharp point
- * does), the stretch between the crossing's two segments is replaced by the crossing point.
+ * A peak's stripes: strands lying parallel to the surface one below another, from just under it
+ * down to its foot, so they fill the wave right through, the middle under its point included.
+ * They are the same size as the great wave's, whatever the peak's size (a small peak simply has
+ * fewer), and each swells and thins along its length, now and then to nothing.
+ *
+ * Each is painted as a distance from the surface, the deepest first: its colour down to its
+ * lower edge, then the dark laid back over everything above it, which leaves the strand. Measured
+ * so, a strand keeps its width on a steep flank as on a gentle one, can never fold over where
+ * the surface bends sharply, and under the point its two flanks meet in a clean V.
  */
-function untangle(Q: Pt[]): Pt[] {
-  const out = Q.slice();
-  for (let i = 0; i < out.length - 3; i++) {
-    for (let j = Math.min(out.length - 2, i + 150); j >= i + 2; j--) {
-      const x = cross(out[i], out[i + 1], out[j], out[j + 1]);
-      if (x) {
-        out.splice(i + 1, j - i, x);
-        break;
-      }
-    }
+function peakStripes(ctx: CanvasRenderingContext2D, sea: Sea, wv: Wave, f: Frame, r: Rng, along: (i: number, scale: number, salt: number) => number) {
+  const { P, N } = f, h = wv.h;
+  // Not from where a flank drops steeply away off the sheet: that would stripe the sheet's edge.
+  const from = (i: number) => P[i][0] >= -50 && P[i][0] <= sea.W + 50 && (f.up[i] > 0.3 || Math.abs(N[i][1]) > 0.3);
+  const W0 = sea.H * r.range(0.021, 0.025), G0 = sea.H * r.range(0.016, 0.02);
+  const strands: { off: number; w: number; k: number }[] = [];
+  for (let k = 0, off = W0 * 0.6; off < h * 1.1; k++) {
+    const grow = 1 + k * 0.03, w = W0 * grow;
+    strands.push({ off, w, k });
+    off += w + G0 * grow;
   }
-  return out;
-}
-
-/** Where segments ab and cd cross, if they do. */
-function cross(a: Pt, b: Pt, c: Pt, d: Pt): Pt | null {
-  const rx = b[0] - a[0], ry = b[1] - a[1], sx = d[0] - c[0], sy = d[1] - c[1], den = rx * sy - ry * sx;
-  if (Math.abs(den) < 1e-9) return null;
-  const t = ((c[0] - a[0]) * sy - (c[1] - a[1]) * sx) / den, u = ((c[0] - a[0]) * ry - (c[1] - a[1]) * rx) / den;
-  return t >= 0 && t <= 1 && u >= 0 && u <= 1 ? [a[0] + rx * t, a[1] + ry * t] : null;
+  for (const { off, w, k } of strands.reverse()) {
+    const ww = (i: number) => w * Math.max(0, 0.85 + 0.5 * along(i, h * 0.5, 30 + k));
+    band(ctx, P, (i) => off + ww(i), k % 2 === 0 ? INK.blue : INK.mid, from);
+    band(ctx, P, () => off, INK.dark, from);
+  }
 }
 
 /**
@@ -408,30 +474,12 @@ function band(ctx: CanvasRenderingContext2D, P: Pt[], d: (i: number) => number, 
   }
 }
 
-/** A drop of colour hanging from `at` along `dir`: a narrow neck `len` long ending in a round drop `w` across. */
-function drop(ctx: CanvasRenderingContext2D, at: Pt, dir: Pt, len: number, w: number) {
-  const nx = -dir[1], ny = dir[0], end: Pt = [at[0] + dir[0] * len, at[1] + dir[1] * len], neck = w * 0.28, root = w * 0.45;
+function fill(ctx: CanvasRenderingContext2D, pts: Pt[], col: string) {
+  if (pts.length < 3) return;
+  ctx.fillStyle = col;
   ctx.beginPath();
-  ctx.moveTo(at[0] + nx * root, at[1] + ny * root);
-  ctx.lineTo(end[0] + nx * neck, end[1] + ny * neck);
-  ctx.lineTo(end[0] - nx * neck, end[1] - ny * neck);
-  ctx.lineTo(at[0] - nx * root, at[1] - ny * root);
-  ctx.closePath();
-  ctx.fill();
-  ctx.beginPath();
-  ctx.arc(end[0], end[1], w / 2, 0, Math.PI * 2);
-  ctx.fill();
-}
-
-/** An irregular rounded splotch. */
-function splotch(ctx: CanvasRenderingContext2D, c: Pt, rad: number, r: Rng) {
-  const k = 9, ph = r.random() * 6, sq = r.range(0.6, 1);
-  ctx.beginPath();
-  for (let j = 0; j <= k; j++) {
-    const a = (j / k) * Math.PI * 2, rr = rad * (1 + 0.22 * Math.sin(a * 2 + ph) + 0.12 * Math.sin(a * 3 - ph));
-    const x = c[0] + Math.cos(a) * rr, y = c[1] + Math.sin(a) * rr * sq;
-    if (j) ctx.lineTo(x, y); else ctx.moveTo(x, y);
-  }
+  ctx.moveTo(pts[0][0], pts[0][1]);
+  for (const p of pts) ctx.lineTo(p[0], p[1]);
   ctx.closePath();
   ctx.fill();
 }
