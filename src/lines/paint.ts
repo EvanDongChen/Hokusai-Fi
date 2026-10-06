@@ -209,8 +209,8 @@ function bandsOf(sea: Sea, wv: Wave, f: Frame, r: Rng, along: (i: number, scale:
    * A bundle of strands along the line L (ordered from the top down). `D` is how far along L the
    * side reaches the sea; past it the strands run on for `run` more and thin away.
    */
-  const bundle = (L: number[], o: { n: number; rim: number; W: number; G: number; D: number; run: number; salt: number; half?: [number, number] }) => {
-    if (L.length < 3) return;
+  const bundle = (L: number[], o: { n: number; rim: number; W: number; G: number; D: number; run: number; salt: number; half?: [number, number] }): Pt[][] => {
+    if (L.length < 3) return [];
     const d = L.map((i) => Math.abs(S[i] - S[L[0]]));
     // The strand nearest the surface reaches highest; each further one starts a little lower.
     const ends = Array.from({ length: o.n }, (_, k) => k * 0.06 + r.range(0, 0.04));
@@ -235,9 +235,27 @@ function bandsOf(sea: Sea, wv: Wave, f: Frame, r: Rng, along: (i: number, scale:
       }
     }
     for (let k = 0; k < o.n; k++) {
-      if (inner[k].length > 2) out.push({ pts: inner[k].concat(outer[k].reverse()), col: k % 2 === 0 ? INK.blue : INK.mid, half: o.half });
+      if (inner[k].length > 2) out.push({ pts: inner[k].concat(outer[k].slice().reverse()), col: k % 2 === 0 ? INK.blue : INK.mid, half: o.half });
     }
+    // Each strand's edge nearest the surface, from its top down.
+    return inner;
   };
+  /** A strand along a curve: full width `w` at its start, tapering to a point at its end. */
+  const strand = (curve: Pt[], w: number, col: string) => {
+    const a: Pt[] = [], b: Pt[] = [], n = curve.length;
+    for (let j = 0; j < n; j++) {
+      const p = curve[Math.max(0, j - 1)], q = curve[Math.min(n - 1, j + 1)], tx = q[0] - p[0], ty = q[1] - p[1], l = Math.hypot(tx, ty) || 1;
+      const half = (w / 2) * Math.pow(1 - j / (n - 1), 0.75);
+      a.push([curve[j][0] - (ty / l) * half, curve[j][1] + (tx / l) * half]);
+      b.push([curve[j][0] + (ty / l) * half, curve[j][1] - (tx / l) * half]);
+    }
+    out.push({ pts: a.concat(b.reverse()), col });
+  };
+  /** Points along the quadratic curve a -> c -> b, up to fraction `to`. */
+  const quad = (a: Pt, c: Pt, b: Pt, to = 1): Pt[] => Array.from({ length: 41 }, (_, k) => {
+    const t = (k / 40) * to, m = 1 - t;
+    return [m * m * a[0] + 2 * m * t * c[0] + t * t * b[0], m * m * a[1] + 2 * m * t * c[1] + t * t * b[1]] as Pt;
+  });
   /** How far along L the side comes down to `level` (as a share of the wave's height). */
   const reach = (L: number[], level: number) => {
     const j = L.findIndex((i, j) => j > 2 && up(i) < level);
@@ -258,16 +276,46 @@ function bandsOf(sea: Sea, wv: Wave, f: Frame, r: Rng, along: (i: number, scale:
     let start = top;
     while (start - step !== tip && Math.abs(S[start - step] - S[top]) < Math.abs(S[tip] - S[top]) * 0.55) start -= step;
     const face = walk(start, step);
-    bundle(face, { n: 4, rim: 0.02, W: r.range(0.055, 0.065), G: r.range(0.055, 0.07), D: reach(face, 0.06), run: r.range(0.5, 0.8), salt: 1 });
-    // Up the back: from about half its height down to the sea.
-    const back = walk(crest, (-step) as 1 | -1), b0 = back.findIndex((i) => up(i) < 0.78);
-    if (b0 >= 0) {
-      const L = back.slice(b0);
-      bundle(L, { n: 2, rim: r.range(0.22, 0.3), W: r.range(0.06, 0.075), G: 0.06, D: reach(L, 0.06), run: 0.3, salt: 2 });
+    const strands = bundle(face, { n: 4, rim: 0.02, W: r.range(0.055, 0.065), G: r.range(0.055, 0.07), D: reach(face, 0.06), run: r.range(0.5, 0.8), salt: 1 });
+    // Up the back: a broad band rising from the lower edge of the sheet, parallel to the back at
+    // first, then curving in to meet the face's outermost strand partway down, making a V; and a
+    // second, shorter band below it.
+    const back = walk(crest, (-step) as 1 | -1).filter((i) => P[i][0] >= 0 && P[i][0] <= sea.W);
+    const outerStrand = strands[strands.length - 1] ?? [];
+    if (back.length > 3 && outerStrand.length > 4) {
+      const inward = (i: number, d: number): Pt => [P[i][0] + N[i][0] * d * h, P[i][1] + N[i][1] * d * h];
+      // The V: where the face's outermost strand comes down to about half the wave's height.
+      const foot = back[back.length - 1], level = r.range(0.36, 0.44);
+      const meet = outerStrand.find((p) => (P[crest][1] + h - p[1]) / h < level) ?? outerStrand[outerStrand.length >> 1];
+      // Where the band comes up from: low down, at the back's foot if it reaches the sea on the
+      // sheet, otherwise at the sheet's edge, well under where the back runs off it.
+      const cut = P[foot][0] < 4 || P[foot][0] > sea.W - 4;
+      const low = (d: number): Pt => !cut
+        ? inward(foot, d)
+        : [fwd > 0 ? 0 : sea.W, Math.max(P[foot][1] + h * (0.25 + d), P[crest][1] + h * (0.88 + d))];
+      // Sagging a little, so it runs in low and then climbs to the V.
+      const bow = (a: Pt): Pt => [(a[0] + meet[0]) / 2, (a[1] + meet[1]) / 2 + h * 0.06];
+      const a1 = low(0), a2 = low(0.14);
+      strand(quad(a1, bow(a1), meet), h * r.range(0.07, 0.09), INK.blue);
+      strand(quad(a2, bow(a2), meet, 0.7), h * r.range(0.05, 0.065), INK.mid);
     }
   } else if (wv.kind === 'trough') {
     const L = P.map((_, i) => i).filter((i) => P[i][0] >= 0 && P[i][0] <= sea.W);
-    if (L.length > 2) bundle(L, { n: 2, rim: 0.06, W: 0.035, G: 0.05, D: Math.abs(S[L[L.length - 1]] - S[L[0]]) * 0.5, run: 1, salt: 5 });
+    // The long trough in front: a scatter of streaks lying along it at different depths, each
+    // tapering away at both ends, as the print streaks the water in the foreground.
+    if (L.length > 2) {
+      const len = L.length - 1;
+      for (let k = 0, n = r.int(5, 7); k < n; k++) {
+        const a = r.range(-0.1, 0.75), b = a + r.range(0.2, 0.45), d = h * r.range(0.05, 0.4), w = h * r.range(0.03, 0.055);
+        const up_: Pt[] = [], dn: Pt[] = [];
+        for (let j = Math.max(0, Math.round(a * len)); j <= Math.min(len, Math.round(b * len)); j++) {
+          const i = L[j], t = (j / len - a) / (b - a), hw = (w / 2) * Math.pow(Math.sin(Math.PI * Math.min(1, Math.max(0, t))), 0.7);
+          up_.push([P[i][0] + N[i][0] * (d - hw), P[i][1] + N[i][1] * (d - hw)]);
+          dn.push([P[i][0] + N[i][0] * (d + hw), P[i][1] + N[i][1] * (d + hw)]);
+        }
+        if (up_.length > 2) out.push({ pts: up_.concat(dn.reverse()), col: k % 2 === 0 ? INK.blue : INK.mid });
+      }
+    }
   } else {
     // A peak: a bundle down each flank, gathered at its point, each kept to its own side.
     // The long back flank carries most of them; the steep front only one.

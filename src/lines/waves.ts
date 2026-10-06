@@ -44,8 +44,14 @@ const OFF = 60;
 
 /** A stroke running on from a wave's foot to the sheet's edge, sagging a little as a trough does. */
 function runOff(foot: Pt, end: Pt): Pt[] {
-  const sag = Math.abs(end[0] - foot[0]) * 0.07;
-  return [[(foot[0] + end[0]) / 2, (foot[1] + end[1]) / 2 + sag], end];
+  // A smooth curve through the sagging midpoint, finely sampled (peaks are not smoothed after).
+  const sag = Math.abs(end[0] - foot[0]) * 0.07, mid: Pt = [(foot[0] + end[0]) / 2, (foot[1] + end[1]) / 2 + sag];
+  const c: Pt = [2 * mid[0] - (foot[0] + end[0]) / 2, 2 * mid[1] - (foot[1] + end[1]) / 2], out: Pt[] = [];
+  for (let k = 1; k <= 16; k++) {
+    const t = k / 16, m = 1 - t;
+    out.push([m * m * foot[0] + 2 * m * t * c[0] + t * t * end[0], m * m * foot[1] + 2 * m * t * c[1] + t * t * end[1]]);
+  }
+  return out;
 }
 
 /**
@@ -118,14 +124,27 @@ export function generate(seed: string): Sea {
   const breaking = r.chance(0.75);
   waves.push({ kind: breaking ? 'great' : 'dome', id: r.int(0, 1e9), h: gh, z: r.range(0.3, 0.45), line: great(r, gx, H * r.range(0.04, 0.16), gh, gw, breaking) });
 
-  // Two or three peaks: big ones farther back, small ones in front, spread across the rest.
-  const n = r.int(2, 3);
-  for (let i = 0; i < n; i++) {
-    const z = r.range(0.2, 0.95), h = H * r.range(0.14, 0.32) * (0.7 + z * 0.5), w = h * r.range(0.7, 1.1);
-    const x = i === 0 ? gx + gw * r.range(-0.3, 0.2) : W * r.range(0.5, 0.92);
-    const top = H * (0.25 + z * 0.55) - h * 0.3;
+  // The peaks. None stands on the great wave's face, where its own stripes are: the small wave
+  // that echoes Fuji sits low in front of the great wave's back, kept small, and the others stand
+  // out beyond its hollow, spread apart so their flanks do not pile up.
+  const gz = waves[0].z, gFoot = (waves[0].line.reduce((m, p) => Math.min(m, p[1]), Infinity)) + gh;
+  const placed: [number, number][] = [];
+  const free = (x: number, w: number) => placed.every(([px, pw]) => Math.abs(x - px) > (w + pw) * 0.75);
+  if (r.chance(0.8)) {
+    const h = gh * r.range(0.3, 0.42), w = h * r.range(0.8, 1.1), x = gx - gw * r.range(0.05, 0.4), z = r.range(gz + 0.2, 0.95);
     const hook = r.chance(0.35);
-    waves.push({ kind: hook ? 'hook' : 'peak', id: r.int(0, 1e9), h, z, line: peak(r, x, top, h, w, hook) });
+    waves.push({ kind: hook ? 'hook' : 'peak', id: r.int(0, 1e9), h, z, line: peak(r, x, gFoot - h * r.range(0.55, 0.85), h, w, hook) });
+    placed.push([x, w]);
+  }
+  const n = r.int(1, 2), lo = gx + gw * 1.35;
+  for (let i = 0, tries = 0; i < n && tries < 12; tries++) {
+    const z = r.range(0.2, 0.95), h = H * r.range(0.14, 0.3) * (0.7 + z * 0.5), w = h * r.range(0.7, 1.1);
+    const x = r.range(lo, W * 0.95);
+    if (lo > W * 0.95 || !free(x, w)) continue;
+    const hook = r.chance(0.35);
+    waves.push({ kind: hook ? 'hook' : 'peak', id: r.int(0, 1e9), h, z, line: peak(r, x, H * (0.25 + z * 0.55) - h * 0.3, h, w, hook) });
+    placed.push([x, w]);
+    i++;
   }
   if (r.chance(0.45)) waves.push({ kind: 'trough', id: r.int(0, 1e9), h: H * 0.3, z: 1, line: trough(r) });
 
