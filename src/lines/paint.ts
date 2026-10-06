@@ -30,7 +30,7 @@ export const LAYERS = ['body', 'stripes', 'pale', 'foam', 'drips', 'splotches', 
 export type LayerName = (typeof LAYERS)[number];
 
 export const INK = {
-  sky: '#ead9b8', dark: '#1d3a6c', mid: '#3264a6', blue: '#4a80c4', light: '#79a6d8', pale: '#a9c9d9', white: '#f5f0e3', key: '#152448',
+  sky: '#ead9b8', dark: '#203e71', mid: '#3268ab', blue: '#4680c6', light: '#79a6d8', pale: '#a9c9d9', white: '#f5f0e3', key: '#152448',
 } as const;
 
 export interface PaintOpts {
@@ -178,15 +178,16 @@ function paintWave(ctx: CanvasRenderingContext2D, sea: Sea, wv: Wave, show: Set<
 }
 
 /**
- * The stripes of a wave, as the print draws them: bands of lighter blue lying along one side of
- * the wave like contour lines, each a polygon offset from the surface into the water. Every band
- * comes to a point at the top, toward the crest, widens and moves further from the surface as it
- * goes down, and thins out where its side runs on into the trough.
+ * The stripes of a wave, as the print draws them: a bundle of broad strands of lighter blue lying
+ * along one side of the wave. They gather to a point at the top, where the side begins, and fan
+ * out going down, each strand and each dark gap between them widening as they go, until they run
+ * out along the trough. A strand is about as wide as the gap beside it.
  *
- *  - On the great wave the front bands start at the hood's tip, so they run up the hood's
- *    underside into it, round the hollow and down the face: three to five, evenly spaced.
- *    One or two broader bands rise up its back, widest at the foot.
- *  - On a peak, two or three thin slivers lie along each flank, converging on the point.
+ *  - The great wave's front bundle starts where its face meets the underside of the hood (the
+ *    curl itself stays solid dark) and fans down the face into the trough. A second, wider
+ *    bundle rises up its back from the lower left, meeting the face's outer strand in a V.
+ *  - A peak has a bundle along each flank, gathered at its point.
+ *  - The long trough in front has a few strands along it.
  */
 /** A band: its outline, its ink, and (for a peak's flank) the span of x it is kept within. */
 interface Band { pts: Pt[]; col: string; half?: [number, number]; }
@@ -195,57 +196,85 @@ function bandsOf(sea: Sea, wv: Wave, f: Frame, r: Rng, along: (i: number, scale:
   const { P, S, N } = f, h = wv.h, out: Band[] = [];
   let crest = 0;
   for (let i = 1; i < P.length; i++) if (P[i][1] < P[crest][1]) crest = i;
-  const fwd = sea.dir, great = wv.kind === 'great' || wv.kind === 'dome';
+  const fwd = sea.dir, up = (i: number) => (P[crest][1] + h - P[i][1]) / h;
 
-  /** Indices from `from` stepping by `step` (away from the crest) to the end of the line. */
+  /** Indices from `from` stepping by `step` to the end of the line. */
   const walk = (from: number, step: 1 | -1) => {
     const o: number[] = [];
     for (let i = from; i >= 0 && i < P.length; i += step) o.push(i);
     return o;
   };
-  /** Bands along one side, starting at index list L[0]; `foot` is how far along L the side meets the sea. */
-  const side = (L: number[], o: { n: number; gap: number; first: number; width: number; start: number; spread: number; run: number; salt: number; D?: number }) => {
+
+  /**
+   * A bundle of strands along the line L (ordered from the top down). `D` is how far along L the
+   * side reaches the sea; past it the strands run on for `run` more and thin away.
+   */
+  const bundle = (L: number[], o: { n: number; rim: number; W: number; G: number; D: number; run: number; salt: number; half?: [number, number] }) => {
     if (L.length < 3) return;
     const d = L.map((i) => Math.abs(S[i] - S[L[0]]));
-    const footAt = L.findIndex((i, j) => j > 2 && (P[i][1] - P[crest][1]) / h > 0.92);
-    const D = o.D ?? (d[footAt > 0 ? footAt : L.length - 1] || 1);
-    for (let k = o.n - 1; k >= 0; k--) {
-      const a = o.start + k * o.spread, inner: Pt[] = [], outer: Pt[] = [];
-      for (let j = 0; j < L.length; j++) {
-        const i = L[j], u = d[j] / D;
-        // Where the line runs off the sheet it turns down; bands offset from there would fold.
-        if (P[i][0] < 0 || P[i][0] > sea.W) break;
-        if (u < a) continue;
-        // Pointed at the top, full width a little way down, thinning out along the trough.
-        const w = o.width * h * Math.pow(smoothstep(a, a + 0.4, u), 1.3) * (1 - smoothstep(1, 1 + o.run, u)) * (0.85 + 0.3 * along(i, h * 0.7, o.salt + 20 + k));
-        const off = (o.first + k * o.gap) * h * (0.75 + 0.45 * Math.min(1.2, u)) + o.gap * h * 0.15 * along(i, h * 0.8, o.salt + k);
-        inner.push([P[i][0] + N[i][0] * off, P[i][1] + N[i][1] * off]);
-        outer.push([P[i][0] + N[i][0] * (off + w), P[i][1] + N[i][1] * (off + w)]);
-        if (u > 1 + o.run) break;
+    // The strand nearest the surface reaches highest; each further one starts a little lower.
+    const ends = Array.from({ length: o.n }, (_, k) => k * 0.06 + r.range(0, 0.04));
+    const inner: Pt[][] = ends.map(() => []), outer: Pt[][] = ends.map(() => []);
+    for (let j = 0; j < L.length; j++) {
+      const i = L[j], u = d[j] / o.D;
+      // Where the line runs off the sheet it turns down; strands offset from there would fold.
+      if (P[i][0] < 0 || P[i][0] > sea.W || u > 1 + o.run) break;
+      // Closer together at the top, fanning out down the side, thinning away along the trough.
+      // Spacing keeps fanning out; only the strands' widths thin away along the trough.
+      const fan = 0.45 + 0.9 * Math.min(1.4, u), fade = 1 - smoothstep(1, 1 + o.run, u);
+      let off = o.rim * h;
+      for (let k = 0; k < o.n; k++) {
+        const wob = 1 + 0.18 * along(i, h * 0.8, o.salt * 10 + k);
+        // Each strand comes to its own point at its top end.
+        const w = o.W * h * fan * fade * Math.pow(smoothstep(ends[k], ends[k] + 0.32, u), 0.8) * wob;
+        if (w > 0.3) {
+          inner[k].push([P[i][0] + N[i][0] * off, P[i][1] + N[i][1] * off]);
+          outer[k].push([P[i][0] + N[i][0] * (off + w), P[i][1] + N[i][1] * (off + w)]);
+        }
+        off += w + o.G * h * fan * (1 + 0.15 * along(i, h * 0.9, o.salt * 10 + k + 5));
       }
-      if (inner.length > 2) out.push({ pts: inner.concat(outer.reverse()), col: k % 2 === 0 ? INK.blue : INK.mid });
+    }
+    for (let k = 0; k < o.n; k++) {
+      if (inner[k].length > 2) out.push({ pts: inner[k].concat(outer[k].reverse()), col: k % 2 === 0 ? INK.blue : INK.mid, half: o.half });
     }
   };
+  /** How far along L the side comes down to `level` (as a share of the wave's height). */
+  const reach = (L: number[], level: number) => {
+    const j = L.findIndex((i, j) => j > 2 && up(i) < level);
+    return Math.abs(S[L[j > 0 ? j : L.length - 1]] - S[L[0]]) || 1;
+  };
 
-  if (great) {
-    // The hood's tip: the most forward point of the line above the lower face.
-    let tip = crest;
-    for (let i = 0; i < P.length; i++) if ((P[i][1] - P[crest][1]) / h < 0.7 && (fwd > 0 ? i > crest : i < crest) && P[i][0] * fwd > P[tip][0] * fwd) tip = i;
-    side(walk(tip, fwd > 0 ? 1 : -1), { n: r.int(3, 5), gap: r.range(0.085, 0.11), first: 0.035, width: r.range(0.045, 0.06), start: 0.03, spread: 0.035, run: r.range(0.8, 1.6), salt: 1 });
-    side(walk(crest, fwd > 0 ? -1 : 1), { n: r.int(1, 2), gap: 0.16, first: r.range(0.22, 0.3), width: r.range(0.07, 0.1), start: 0.3, spread: 0.1, run: 0.6, salt: 2 });
+  if (wv.kind === 'great' || wv.kind === 'dome') {
+    // The hood's tip (its most forward point above the lower face), and where the face meets the
+    // hood's underside (the hollow's innermost point between them). The strands start halfway
+    // along the underside from the one to the other, so they curve up in under the curl, which
+    // itself stays solid dark.
+    const step: 1 | -1 = fwd > 0 ? 1 : -1, ahead = (i: number) => (fwd > 0 ? i > crest : i < crest);
+    let tip = -1;
+    for (let i = 0; i < P.length; i++) if (ahead(i) && up(i) > 0.3 && up(i) < 0.75 && (tip < 0 || P[i][0] * fwd > P[tip][0] * fwd)) tip = i;
+    if (tip < 0) return out;
+    let top = tip;
+    for (let i = tip; i >= 0 && i < P.length && up(i) > 0.25; i += step) if (P[i][0] * fwd < P[top][0] * fwd) top = i;
+    let start = top;
+    while (start - step !== tip && Math.abs(S[start - step] - S[top]) < Math.abs(S[tip] - S[top]) * 0.55) start -= step;
+    const face = walk(start, step);
+    bundle(face, { n: 4, rim: 0.02, W: r.range(0.055, 0.065), G: r.range(0.055, 0.07), D: reach(face, 0.06), run: r.range(0.5, 0.8), salt: 1 });
+    // Up the back: from about half its height down to the sea.
+    const back = walk(crest, (-step) as 1 | -1), b0 = back.findIndex((i) => up(i) < 0.78);
+    if (b0 >= 0) {
+      const L = back.slice(b0);
+      bundle(L, { n: 2, rim: r.range(0.22, 0.3), W: r.range(0.06, 0.075), G: 0.06, D: reach(L, 0.06), run: 0.3, salt: 2 });
+    }
   } else if (wv.kind === 'trough') {
-    // The long trough: bands along its whole width, pointed where they start on the left.
     const L = P.map((_, i) => i).filter((i) => P[i][0] >= 0 && P[i][0] <= sea.W);
-    if (L.length > 2) side(L, { n: 3, gap: 0.14, first: 0.08, width: 0.06, start: 0.05, spread: 0.12, run: 0.05, salt: 5, D: Math.abs(S[L[L.length - 1]] - S[L[0]]) * 0.9 });
+    if (L.length > 2) bundle(L, { n: 2, rim: 0.06, W: 0.035, G: 0.05, D: Math.abs(S[L[L.length - 1]] - S[L[0]]) * 0.5, run: 1, salt: 5 });
   } else {
-    // A peak: slivers along each flank, converging on its point, each flank's kept to its own
-    // side of the point so they never cross under it.
-    const n = r.int(2, 3), thin = r.range(0.06, 0.08), cx = P[crest][0];
+    // A peak: a bundle down each flank, gathered at its point, each kept to its own side.
+    // The long back flank carries most of them; the steep front only one.
+    const cx = P[crest][0];
     for (const [dir, salt] of [[1, 3], [-1, 4]] as const) {
-      const from = out.length;
-      // Starting a little below the point, so the two flanks' slivers do not cross under it.
-      side(walk(crest, dir), { n, gap: r.range(0.12, 0.16), first: 0.05, width: thin, start: 0.16, spread: 0.07, run: 0.5, salt });
-      for (const b of out.slice(from)) b.half = dir > 0 ? [cx, Infinity] : [-Infinity, cx];
+      const L = walk(crest, dir), isBack = (dir < 0) === (fwd > 0), n = isBack ? r.int(2, 3) : 1;
+      bundle(L, { n, rim: 0.04, W: r.range(0.06, 0.075), G: r.range(0.07, 0.09), D: reach(L, 0.05), run: 0.5, salt, half: dir > 0 ? [cx, Infinity] : [-Infinity, cx] });
     }
   }
   return out;
