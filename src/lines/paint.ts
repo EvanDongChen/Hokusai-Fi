@@ -320,13 +320,29 @@ function bandsOf(sea: Sea, wv: Wave, f: Frame, r: Rng, along: (i: number, scale:
       }
     }
   } else {
-    // A peak: a bundle down each flank, gathered at its point, each kept to its own side.
-    // The long back flank carries most of them, the steep front fewer.
-    const cx = P[crest][0];
-    for (const [dir, salt] of [[1, 3], [-1, 4]] as const) {
-      const L = walk(crest, dir), isBack = (dir < 0) === (fwd > 0), n = isBack ? r.int(7, 8) : r.int(5, 6);
-      // Enough strands to reach down through the whole wave, running on along its flanks.
-      bundle(L, { n, rim: 0.035, W: r.range(0.045, 0.055), G: r.range(0.04, 0.05), D: reach(L, 0.05), run: 1.4, salt, half: dir > 0 ? [cx, Infinity] : [-Infinity, cx] });
+    // A peak: nested chevrons, the wave's own outline shifted straight down one below another
+    // until they reach its foot. Each is sharp under the point and runs out along both flanks, so
+    // the strands lie parallel to the flanks and fill the wave right through, the middle under
+    // its point included. Each strand swells and thins along its length, now and then to nothing.
+    const L = P.map((_, i) => i).filter((i) => P[i][0] >= -50 && P[i][0] <= sea.W + 50);
+    const W0 = h * r.range(0.04, 0.05), G0 = h * r.range(0.035, 0.045);
+    let off = h * 0.035;
+    for (let k = 0; off < h * 1.15; k++) {
+      // A little wider and further apart the deeper they lie.
+      const grow = 1 + k * 0.06, w = W0 * grow, top: Pt[] = [], bot: Pt[] = [];
+      const flush = () => {
+        if (top.length > 2) out.push({ pts: top.concat(bot.slice().reverse()), col: k % 2 === 0 ? INK.blue : INK.mid });
+        top.length = 0;
+        bot.length = 0;
+      };
+      for (const i of L) {
+        const v = along(i, h * 0.5, 30 + k), ww = w * Math.max(0, 0.85 + 0.5 * v);
+        if (ww < 0.6) { flush(); continue; }
+        top.push([P[i][0], P[i][1] + off]);
+        bot.push([P[i][0], P[i][1] + off + ww]);
+      }
+      flush();
+      off += w + G0 * grow;
     }
   }
   return out;
