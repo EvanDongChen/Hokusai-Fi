@@ -206,7 +206,7 @@ function carveWave(w: WaveSpec, r: Rng): Layer[] {
       for (let k = 0; k < z.strands.n; k++) {
         const u = (k + 0.6) / (z.strands.n + 0.4) + r.range(-0.03, 0.03);
         const v0 = r.range(0, 0.25), v1 = r.range(0.75, 1);
-        strands[sk].push(sliver(E, S, u, z.strands.w * r.range(0.7, 1.3), v0, v1, { wave: r.range(1, 4), ph: r.range(0, 6), minW: 4 }));
+        strands[sk].push(sliver(E, S, u, z.strands.w * r.range(0.7, 1.3), v0, v1, { wave: r.range(1, 4), ph: r.range(0, 6), minW: 9 }));
       }
     }
     if (z.flecks) dots.push(...flecks(poly, z.flecks, 1.6, 4.6, r));
@@ -218,8 +218,8 @@ function carveWave(w: WaveSpec, r: Rng): Layer[] {
 
   // The outline, then the foam: these are free of the body, and break out over the sky.
   for (const c of w.crowns ?? []) crown(tl, r, new Path(curve(c.a)), new Path(curve(c.b)), c);
-  const free: Layer & { free?: boolean } = { ink: 'aqua', fill: tl.halo, free: true };
-  out.push(free, { ink: 'paper', fill: tl.body }, { ink: 'key', fill: tl.hook });
+  const free: Layer & { free?: boolean } = { ink: 'paper', fill: tl.mass, free: true };
+  out.push(free, { ink: 'aqua', fill: tl.halo }, { ink: 'paper', fill: tl.body }, { ink: 'key', fill: tl.hook });
   const k = w.key ?? [0, 1];
   if (k[1] > k[0]) {
     const O = new Path(curve(w.outline));

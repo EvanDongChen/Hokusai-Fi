@@ -101,9 +101,9 @@ export function lobed(path: Path, a: number, b: number, o: LobeOpts, rng: Rng): 
   return { edge, tips };
 }
 
-/** The three blocks a talon prints in: its pale shadow, its white body and its dark hook. */
-export interface Talons { halo: Pt[][]; body: Pt[][]; hook: Pt[][]; }
-export const talons = (): Talons => ({ halo: [], body: [], hook: [] });
+/** The blocks talons print in: the foam they grow from, their pale shadows, white bodies and dark hooks. */
+export interface Talons { mass: Pt[][]; halo: Pt[][]; body: Pt[][]; hook: Pt[][]; }
+export const talons = (): Talons => ({ mass: [], halo: [], body: [], hook: [] });
 
 /**
  * A talon of foam from (x, y), heading `ang`, curling round by `curl` radians at its end, toward
@@ -131,8 +131,10 @@ export function talon(out: Talons, rng: Rng, x: number, y: number, ang: number, 
     return o;
   };
   const outer = -turn, inner = turn;
-  // The pale shadow sits inside the curl, fuller than the finger.
-  out.halo.push(edge(inner, (t) => half(t) * 0.2, 0, 0.62).concat(edge(inner, (t) => half(t) + wid * 0.5 * Math.sin(Math.PI * Math.min(1, t / 0.62)), 0, 0.62).reverse()));
+  // The pale shadow pools inside the curl and along the finger's inner side.
+  const ci = Math.round(n * 0.62), ca = hd[ci], cd = half(0.62) + wid * 0.35;
+  out.halo.push(blob(px[ci] - Math.sin(ca) * cd * inner, py[ci] + Math.cos(ca) * cd * inner, Math.max(2, len * 0.3), rng, 10));
+  out.halo.push(edge(inner, () => 0, 0, 0.7).concat(edge(inner, (t) => half(t) + wid * 0.45 * Math.sin(Math.PI * Math.min(1, t / 0.7)), 0, 0.7).reverse()));
   out.body.push(edge(1, half).concat(edge(-1, half).reverse()));
   // The dark hook: a line along the outside of the curl that thickens and wraps round the tip.
   const h0 = Math.max(0.15, 1 - 26 / Math.max(1, len)), hw = Math.min(wid * 0.26, 3.6);
@@ -160,25 +162,34 @@ export function talonsOnTips(out: Talons, rng: Rng, tips: Tip[], size: number, t
 }
 
 /**
- * The crown of foam on a breaking crest: fingers rising from path b out toward path a, each
- * splitting into curling talons, in `rows` staggered layers, one every `step` px along.
+ * The crown of foam on a breaking crest: short, fat talons packed between path b and path a,
+ * each curling over, one every `step` px along and about a talon's length apart across. The
+ * talons near path a, the crown's outer edge, are the biggest.
  */
 export function crown(out: Talons, rng: Rng, a: Path, b: Path, o: { rows: number; step: number; size: number; turn: number; curl?: number; from?: number; to?: number; grow?: number }) {
   const f0 = o.from ?? 0, f1 = o.to ?? 1;
   const n = Math.max(1, Math.round((b.total + a.total) / 2 * (f1 - f0) / o.step));
-  for (let r = 0; r < o.rows; r++) {
-    const layer = r / o.rows;
-    for (let i = 0; i < n; i++) {
-      const f = f0 + (f1 - f0) * clamp((i + 0.5 + (r % 2) * 0.5 + rng.range(-0.25, 0.25)) / n, 0, 1);
-      const pb = b.at(f), pa = a.at(f);
-      const dx = pa[0] - pb[0], dy = pa[1] - pb[1], reach = Math.hypot(dx, dy);
-      if (reach < 4) continue;
-      // Later layers start further out and reach less far, so the crown thins toward its edge.
-      const s0 = layer * 0.45 * rng.range(0.6, 1.2), len = reach * (1 - s0) * rng.range(0.75, 1.08);
-      const x = pb[0] + dx * s0, y = pb[1] + dy * s0, g = lerp(1, o.grow ?? 1, f);
-      const wid = o.size * 0.55 * g * rng.range(0.8, 1.2);
-      const along = a.dir(f), ang = Math.atan2(dy + along[1] * reach * 0.3, dx + along[0] * reach * 0.3);
-      talon(out, rng, x, y, ang - o.turn * rng.range(0.1, 0.5), len, wid, o.turn, (o.curl ?? 2.2) * rng.range(0.8, 1.15), len > o.size * 1.6 ? 2 : 1);
+  // The foam the talons grow from: most of the way out to the crown's edge, ragged along it.
+  const m = 48, inner: Pt[] = [], outer: Pt[] = [];
+  for (let i = 0; i <= m; i++) {
+    const f = f0 + (f1 - f0) * (i / m), pb = b.at(f), pa = a.at(f), u = 0.55 + 0.2 * Math.sin(i * 1.7 + rng.random());
+    inner.push(pb);
+    outer.push([lerp(pb[0], pa[0], u), lerp(pb[1], pa[1], u)]);
+  }
+  out.mass.push(inner.concat(outer.reverse()));
+  for (let i = 0; i < n; i++) {
+    const f = f0 + (f1 - f0) * clamp((i + rng.range(0.2, 0.8)) / n, 0, 1);
+    const pb = b.at(f), pa = a.at(f), dx = pa[0] - pb[0], dy = pa[1] - pb[1], reach = Math.hypot(dx, dy);
+    const g = lerp(1, o.grow ?? 1, f), along = a.dir(f);
+    // Rows across the crown, the outermost first, so inner talons tuck under outer ones.
+    const rows = Math.max(1, Math.min(o.rows + 2, Math.round(reach / (o.size * g * 0.85))));
+    for (let k = rows - 1; k >= 0; k--) {
+      const u = rows === 1 ? 0.6 : 0.15 + 0.8 * (k / (rows - 1)) + rng.range(-0.08, 0.08);
+      const x = pb[0] + dx * u + rng.range(-3, 3), y = pb[1] + dy * u + rng.range(-3, 3);
+      const sz = o.size * g * (0.75 + 0.4 * u) * rng.range(0.8, 1.2);
+      // Out from the crest and forward along it, then curling over.
+      const ang = Math.atan2(dy / (reach || 1) * 0.6 + along[1], dx / (reach || 1) * 0.6 + along[0]);
+      talon(out, rng, x, y, ang - o.turn * rng.range(0.3, 0.8), sz, sz * rng.range(0.42, 0.55), o.turn, (o.curl ?? 3) * rng.range(0.85, 1.15), sz > 22 ? 1 : 0);
     }
   }
 }
