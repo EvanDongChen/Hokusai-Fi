@@ -89,7 +89,8 @@ function great(r: Rng, x: number, top: number, h: number, w: number, breaking: b
  */
 function peak(r: Rng, x: number, top: number, h: number, w: number, hook: boolean): Pt[] {
   const b = top + h, wb = w * r.range(1.3, 1.8), wf = w * r.range(0.8, 1.15);
-  const pb = r.range(1.9, 2.5), pf = r.range(1.7, 2.3), lean = w * (hook ? r.range(0.12, 0.2) : r.range(0, 0.08));
+  const pb = r.range(1.9, 2.5), pf = r.range(1.7, 2.3), // The lean never pulls the front flank past upright (its slope at the point is wf - 6 lean).
+  lean = Math.min(wf / 7, w * (hook ? r.range(0.1, 0.16) : r.range(0, 0.08)));
   const n = 24, pts: Pt[] = [];
   // Up the back flank to the point, then down the front.
   for (let k = 0; k <= n; k++) {

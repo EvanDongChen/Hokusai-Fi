@@ -325,27 +325,62 @@ function bandsOf(sea: Sea, wv: Wave, f: Frame, r: Rng, along: (i: number, scale:
     // the strands lie parallel to the flanks and fill the wave right through, the middle under
     // its point included. Each strand swells and thins along its length, now and then to nothing.
     const L = P.map((_, i) => i).filter((i) => P[i][0] >= -50 && P[i][0] <= sea.W + 50);
-    const W0 = h * r.range(0.04, 0.05), G0 = h * r.range(0.035, 0.045);
-    let off = h * 0.035;
-    for (let k = 0; off < h * 1.15; k++) {
-      // A little wider and further apart the deeper they lie.
-      const grow = 1 + k * 0.06, w = W0 * grow, top: Pt[] = [], bot: Pt[] = [];
+    // Strands the same size as the great wave's, whatever the peak's size: a small peak simply
+    // has fewer. Each is the surface offset straight into the water, so it keeps its width on a
+    // steep flank as on a gentle one; under the point, where the two flanks' offsets cross, the
+    // loop they make is cut away, leaving a clean V.
+    const W0 = sea.H * r.range(0.021, 0.025), G0 = sea.H * r.range(0.016, 0.02);
+    let off = W0 * 0.6;
+    for (let k = 0; off < h * 1.1; k++) {
+      const grow = 1 + k * 0.03, w = W0 * grow;
+      // Split where the strand thins to nothing, so it swells and breaks along its length.
+      let run: number[] = [];
       const flush = () => {
-        if (top.length > 2) out.push({ pts: top.concat(bot.slice().reverse()), col: k % 2 === 0 ? INK.blue : INK.mid });
-        top.length = 0;
-        bot.length = 0;
+        if (run.length > 2) {
+          const top = untangle(run.map((i): Pt => [P[i][0] + N[i][0] * off, P[i][1] + N[i][1] * off]));
+          const bot = untangle(run.map((i) => {
+            const ww = w * Math.max(0, 0.85 + 0.5 * along(i, h * 0.5, 30 + k));
+            return [P[i][0] + N[i][0] * (off + ww), P[i][1] + N[i][1] * (off + ww)] as Pt;
+          }));
+          out.push({ pts: top.concat(bot.reverse()), col: k % 2 === 0 ? INK.blue : INK.mid });
+        }
+        run = [];
       };
       for (const i of L) {
-        const v = along(i, h * 0.5, 30 + k), ww = w * Math.max(0, 0.85 + 0.5 * v);
-        if (ww < 0.6) { flush(); continue; }
-        top.push([P[i][0], P[i][1] + off]);
-        bot.push([P[i][0], P[i][1] + off + ww]);
+        if (w * Math.max(0, 0.85 + 0.5 * along(i, h * 0.5, 30 + k)) < 0.6) flush();
+        else run.push(i);
       }
       flush();
       off += w + G0 * grow;
     }
   }
   return out;
+}
+
+/**
+ * A polyline with the loops cut out of it: where it crosses itself (as an offset of a sharp point
+ * does), the stretch between the crossing's two segments is replaced by the crossing point.
+ */
+function untangle(Q: Pt[]): Pt[] {
+  const out = Q.slice();
+  for (let i = 0; i < out.length - 3; i++) {
+    for (let j = Math.min(out.length - 2, i + 150); j >= i + 2; j--) {
+      const x = cross(out[i], out[i + 1], out[j], out[j + 1]);
+      if (x) {
+        out.splice(i + 1, j - i, x);
+        break;
+      }
+    }
+  }
+  return out;
+}
+
+/** Where segments ab and cd cross, if they do. */
+function cross(a: Pt, b: Pt, c: Pt, d: Pt): Pt | null {
+  const rx = b[0] - a[0], ry = b[1] - a[1], sx = d[0] - c[0], sy = d[1] - c[1], den = rx * sy - ry * sx;
+  if (Math.abs(den) < 1e-9) return null;
+  const t = ((c[0] - a[0]) * sy - (c[1] - a[1]) * sx) / den, u = ((c[0] - a[0]) * ry - (c[1] - a[1]) * rx) / den;
+  return t >= 0 && t <= 1 && u >= 0 && u <= 1 ? [a[0] + rx * t, a[1] + ry * t] : null;
 }
 
 /**
