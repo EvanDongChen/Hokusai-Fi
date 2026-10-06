@@ -20,6 +20,7 @@
 //   splotches  mottling where white meets blue (small waves)
 //   outline    the key line along the surface
 
+import { smoothstep } from '../core/math';
 import { Noise } from '../core/noise';
 import { resample } from '../core/print';
 import { Rng } from '../core/rng';
@@ -54,20 +55,27 @@ export function paint(ctx: CanvasRenderingContext2D, sea: Sea, o: PaintOpts = {}
 /** Big waves are streaked; small ones are mottled. */
 export const isBig = (sea: Sea, wv: Wave) => wv.kind === 'great' || wv.kind === 'dome' || wv.kind === 'trough' || wv.h > sea.H * 0.3;
 
-/** A wave's surface, resampled evenly, with its length along and inward normal at each point. */
-interface Frame { P: Pt[]; S: number[]; N: Pt[]; back: number[]; }
+/**
+ * A wave's surface, resampled evenly: the points, their length along, the inward normal, how high
+ * each stands as a share of the wave's height, and which side of the crest it lies on.
+ */
+interface Frame { P: Pt[]; S: number[]; N: Pt[]; up: number[]; back: boolean[]; }
 
 function frame(sea: Sea, wv: Wave): Frame {
-  const P = resample(wv.line, 5), S = [0], N: Pt[] = [], back: number[] = [];
+  const P = resample(wv.line, 5), S = [0], N: Pt[] = [], up: number[] = [], back: boolean[] = [];
   for (let i = 1; i < P.length; i++) S.push(S[i - 1] + Math.hypot(P[i][0] - P[i - 1][0], P[i][1] - P[i - 1][1]));
+  let crest = 0;
+  for (let i = 1; i < P.length; i++) if (P[i][1] < P[crest][1]) crest = i;
+  const foot = P[crest][1] + wv.h;
   for (let i = 0; i < P.length; i++) {
     const a = P[Math.max(0, i - 1)], b = P[Math.min(P.length - 1, i + 1)], tx = b[0] - a[0], ty = b[1] - a[1], l = Math.hypot(tx, ty) || 1;
     // The water lies to the right of the line, which runs left to right over its top.
     N.push([-ty / l, tx / l]);
-    // How much this stretch is the wave's back: rising toward the crest, the way the wave breaks.
-    back.push(Math.max(0, Math.min(1, (-ty / l) * sea.dir * 1.6)));
+    up.push((foot - P[i][1]) / wv.h);
+    // The back is the side the wave breaks away from.
+    back.push(sea.dir > 0 ? i < crest : i > crest);
   }
-  return { P, S, N, back };
+  return { P, S, N, up, back };
 }
 
 function paintWave(ctx: CanvasRenderingContext2D, sea: Sea, wv: Wave, show: Set<LayerName>, tint: string | null) {
@@ -84,10 +92,17 @@ function paintWave(ctx: CanvasRenderingContext2D, sea: Sea, wv: Wave, show: Set<
   water.closePath();
   ctx.clip(water);
 
-  // How deep the white lies under the surface: deep on the back, a thin rim on the face.
+  // How deep the white lies under the surface. On a big wave it caps the whole upper back and
+  // the top of the hood, and is only a thin rim down the face; its lower edge is cut by narrow
+  // fingers of blue rising into it. On a small wave it is a white cap over the top.
+  const period = h * r.range(0.07, 0.1);
   const foam = P.map((_, i) => {
-    const v = 0.5 + 0.5 * along(i, h * 0.35, 1);
-    return big ? h * (0.018 + 0.32 * f.back[i] * v + 0.025 * v) : h * (0.1 + 0.18 * f.back[i] * v + 0.08 * v);
+    const v = 0.5 + 0.5 * along(i, h * 0.35, 1), u = f.up[i];
+    const d = big
+      ? f.back[i] ? h * (0.02 + (0.24 + 0.16 * v) * smoothstep(0.12, 0.55, u)) : u > 0.68 ? h * (0.05 + 0.06 * v) : h * 0.018
+      : h * (0.1 + 0.18 * (f.back[i] ? 1 : 0.5) * v + 0.06 * v);
+    const finger = Math.pow(Math.max(0, Math.sin((S[i] / period) * Math.PI * 2 + 3 * along(i, h * 0.6, 3))), 8);
+    return d * (1 - (big ? 0.6 : 0.35) * finger * smoothstep(h * 0.06, h * 0.15, d));
   });
   const pale = P.map((_, i) => foam[i] + h * (big ? 0.025 : 0.06) * (0.6 + 0.6 * (0.5 + 0.5 * along(i, h * 0.25, 2))));
 
@@ -99,37 +114,49 @@ function paintWave(ctx: CanvasRenderingContext2D, sea: Sea, wv: Wave, show: Set<
   }
 
   if (big && show.has('stripes')) {
-    // Streaks of lighter blue parallel to the surface, laid deepest first: each is painted down to
-    // its lower edge, then the dark laid back over everything above it, leaving a streak. Where a
-    // streak's width falls to nothing it ends, so they run in long tapering strands.
-    // Measured from the wave's front only (its face, the hood's underside, the trough), so they run
-    // round the curl and the hollow rather than meeting the back's in creases.
-    const front = (i: number) => f.back[i] < 0.3;
-    const start = h * 0.09, gap = h * r.range(0.045, 0.06), K = Math.round((h * 0.75) / gap);
-    for (let k = K - 1; k >= 0; k--) {
-      const top = P.map((_, i) => start + k * gap + gap * 0.35 * along(i, h * 0.5, 10 + k));
-      const width = P.map((_, i) => gap * 0.55 * Math.max(0, along(i, h * 0.3, 40 + k) + 0.25));
-      band(ctx, P, (i) => top[i] + width[i], k % 3 === 2 ? INK.pale : INK.blue, front);
-      band(ctx, P, (i) => top[i], INK.dark, front);
+    // A handful of long streaks sweeping up the face and curling into the hood, measured from the
+    // face and the hood's underside only (not its back or top). Each runs along its own stretch,
+    // swelling in the middle and tapering away at both ends, with dark between them. They are laid
+    // deepest first: each painted down to its lower edge, then the dark laid back over everything
+    // above it, which leaves the streak.
+    const front = (i: number) => !f.back[i] && f.up[i] < 0.72;
+    const idx = P.map((_, i) => i).filter(front);
+    if (idx.length > 2) {
+      const s0 = S[idx[0]], len = S[idx[idx.length - 1]] - s0;
+      const K = r.int(5, 7), gap = h * r.range(0.07, 0.095), start = h * 0.05;
+      for (let k = K - 1; k >= 0; k--) {
+        const a = r.range(0, 0.3), b = r.range(a + 0.35, 1), pale = k % 2 === 1;
+        const top = P.map((_, i) => start + k * gap + gap * 0.3 * along(i, h * 0.6, 10 + k));
+        const width = P.map((_, i) => {
+          const u = (S[i] - s0) / len, t = (u - a) / (b - a);
+          return t <= 0 || t >= 1 ? 0 : gap * (pale ? 0.3 : 0.6) * Math.pow(Math.sin(Math.PI * t), 0.8);
+        });
+        band(ctx, P, (i) => top[i] + width[i], pale ? INK.pale : INK.blue, (i) => front(i) && width[i] > 0.5);
+        // The dark goes back over the whole face, so a streak's rounded ends leave no rings.
+        band(ctx, P, (i) => top[i], INK.dark, front);
+      }
     }
   }
 
+  // White leaking down from the foam like paint: a narrow neck ending in a round drop, in all
+  // lengths, hanging from the foam's lower edge only where it is thick. Their pale-blue halos go
+  // down before the foam, so the white covers them except where a drop hangs below it.
+  const drops: { at: Pt; dir: Pt; len: number; w: number }[] = [];
+  if (show.has('drips')) {
+    const n = Math.round(S[S.length - 1] / (h * (big ? 0.05 : 0.09)));
+    for (let k = 0; k < n; k++) {
+      const i = r.int(1, P.length - 2);
+      if (foam[i] < h * 0.06) continue;
+      const d = foam[i] * 0.97, nx = N[i][0], ny = N[i][1] + 0.8, l = Math.hypot(nx, ny) || 1;
+      drops.push({ at: [P[i][0] + N[i][0] * d, P[i][1] + N[i][1] * d], dir: [nx / l, ny / l], len: h * Math.pow(r.random(), 1.6) * (big ? 0.12 : 0.07) + h * 0.015, w: h * r.range(0.018, 0.035) });
+    }
+    ctx.fillStyle = INK.pale;
+    for (const dr of drops) drop(ctx, dr.at, dr.dir, dr.len, dr.w * 1.5);
+  }
   if (show.has('pale')) band(ctx, P, (i) => pale[i], INK.pale);
   if (show.has('foam')) band(ctx, P, (i) => foam[i], INK.white);
-
-  if (show.has('drips')) {
-    // White leaking down from the foam: fingers falling from its lower edge, pale-blue edged.
-    const n = Math.round(S[S.length - 1] / (h * (big ? 0.12 : 0.16)));
-    const drops: { at: Pt; dir: Pt; len: number; w: number }[] = [];
-    for (let k = 0; k < n; k++) {
-      const i = r.int(1, P.length - 2), d = foam[i] * 0.85, nx = N[i][0], ny = N[i][1] + 0.5, l = Math.hypot(nx, ny) || 1;
-      drops.push({ at: [P[i][0] + N[i][0] * d, P[i][1] + N[i][1] * d], dir: [nx / l, ny / l], len: h * r.range(0.03, big ? 0.1 : 0.08), w: h * r.range(0.025, 0.05) });
-    }
-    for (const [col, grow] of [[INK.pale, 1.6], [INK.white, 1]] as const) {
-      ctx.fillStyle = col;
-      for (const dr of drops) finger(ctx, dr.at, dr.dir, dr.len * (grow > 1 ? 1.1 : 1), dr.w * grow);
-    }
-  }
+  ctx.fillStyle = INK.white;
+  for (const dr of drops) drop(ctx, dr.at, dr.dir, dr.len, dr.w);
 
   if (!big && show.has('splotches')) {
     // Mottling where the white meets the blue: rounded splotches of all three, scattered about
@@ -180,21 +207,18 @@ function band(ctx: CanvasRenderingContext2D, P: Pt[], d: (i: number) => number, 
   }
 }
 
-/** A finger of colour from `at` along `dir`, `len` long, `w` wide at its root, rounded at its end. */
-function finger(ctx: CanvasRenderingContext2D, at: Pt, dir: Pt, len: number, w: number) {
-  const n = 10, nx = -dir[1], ny = dir[0], left: Pt[] = [], right: Pt[] = [];
-  for (let k = 0; k <= n; k++) {
-    // Swelling a little, then rounding off at the end like a drop.
-    const t = k / n, half = (w / 2) * Math.sqrt(Math.max(0, 1 - Math.pow(t, 3))) * (0.85 + 0.3 * Math.sin(Math.PI * t));
-    const x = at[0] + dir[0] * len * t, y = at[1] + dir[1] * len * t;
-    left.push([x + nx * half, y + ny * half]);
-    right.push([x - nx * half, y - ny * half]);
-  }
+/** A drop of colour hanging from `at` along `dir`: a narrow neck `len` long ending in a round drop `w` across. */
+function drop(ctx: CanvasRenderingContext2D, at: Pt, dir: Pt, len: number, w: number) {
+  const nx = -dir[1], ny = dir[0], end: Pt = [at[0] + dir[0] * len, at[1] + dir[1] * len], neck = w * 0.28, root = w * 0.45;
   ctx.beginPath();
-  ctx.moveTo(left[0][0], left[0][1]);
-  for (const p of left) ctx.lineTo(p[0], p[1]);
-  for (const p of right.reverse()) ctx.lineTo(p[0], p[1]);
+  ctx.moveTo(at[0] + nx * root, at[1] + ny * root);
+  ctx.lineTo(end[0] + nx * neck, end[1] + ny * neck);
+  ctx.lineTo(end[0] - nx * neck, end[1] - ny * neck);
+  ctx.lineTo(at[0] - nx * root, at[1] - ny * root);
   ctx.closePath();
+  ctx.fill();
+  ctx.beginPath();
+  ctx.arc(end[0], end[1], w / 2, 0, Math.PI * 2);
   ctx.fill();
 }
 
