@@ -276,7 +276,7 @@ function bandsOf(sea: Sea, wv: Wave, f: Frame, r: Rng, along: (i: number, scale:
     let start = top;
     while (start - step !== tip && Math.abs(S[start - step] - S[top]) < Math.abs(S[tip] - S[top]) * 0.55) start -= step;
     const face = walk(start, step);
-    const strands = bundle(face, { n: 4, rim: 0.02, W: r.range(0.055, 0.065), G: r.range(0.055, 0.07), D: reach(face, 0.06), run: r.range(0.5, 0.8), salt: 1 });
+    const strands = bundle(face, { n: r.int(6, 7), rim: 0.02, W: r.range(0.04, 0.048), G: r.range(0.032, 0.04), D: reach(face, 0.06), run: r.range(0.5, 0.8), salt: 1 });
     // Up the back: a broad band rising from the lower edge of the sheet, parallel to the back at
     // first, then curving in to meet the face's outermost strand partway down, making a V; and a
     // second, shorter band below it.
@@ -295,9 +295,11 @@ function bandsOf(sea: Sea, wv: Wave, f: Frame, r: Rng, along: (i: number, scale:
         : [fwd > 0 ? 0 : sea.W, Math.max(P[foot][1] + h * (0.25 + d), P[crest][1] + h * (0.88 + d))];
       // Sagging a little, so it runs in low and then climbs to the V.
       const bow = (a: Pt): Pt => [(a[0] + meet[0]) / 2, (a[1] + meet[1]) / 2 + h * 0.06];
-      const a1 = low(0), a2 = low(0.14);
-      strand(quad(a1, bow(a1), meet), h * r.range(0.07, 0.09), INK.blue);
-      strand(quad(a2, bow(a2), meet, 0.7), h * r.range(0.05, 0.065), INK.mid);
+      // A few bands, one below another, each a little shorter, the first reaching the V.
+      for (let k = 0, n = r.int(3, 4); k < n; k++) {
+        const a = low(k * 0.11);
+        strand(quad(a, bow(a), meet, 1 - k * 0.14), h * r.range(0.05, 0.065) * (1 - k * 0.1), k % 2 === 0 ? INK.blue : INK.mid);
+      }
     }
   } else if (wv.kind === 'trough') {
     const L = P.map((_, i) => i).filter((i) => P[i][0] >= 0 && P[i][0] <= sea.W);
@@ -305,7 +307,7 @@ function bandsOf(sea: Sea, wv: Wave, f: Frame, r: Rng, along: (i: number, scale:
     // tapering away at both ends, as the print streaks the water in the foreground.
     if (L.length > 2) {
       const len = L.length - 1;
-      for (let k = 0, n = r.int(5, 7); k < n; k++) {
+      for (let k = 0, n = r.int(8, 10); k < n; k++) {
         const a = r.range(-0.1, 0.75), b = a + r.range(0.2, 0.45), d = h * r.range(0.05, 0.4), w = h * r.range(0.03, 0.055);
         const up_: Pt[] = [], dn: Pt[] = [];
         for (let j = Math.max(0, Math.round(a * len)); j <= Math.min(len, Math.round(b * len)); j++) {
@@ -321,8 +323,8 @@ function bandsOf(sea: Sea, wv: Wave, f: Frame, r: Rng, along: (i: number, scale:
     // The long back flank carries most of them; the steep front only one.
     const cx = P[crest][0];
     for (const [dir, salt] of [[1, 3], [-1, 4]] as const) {
-      const L = walk(crest, dir), isBack = (dir < 0) === (fwd > 0), n = isBack ? r.int(2, 3) : 1;
-      bundle(L, { n, rim: 0.04, W: r.range(0.06, 0.075), G: r.range(0.07, 0.09), D: reach(L, 0.05), run: 0.5, salt, half: dir > 0 ? [cx, Infinity] : [-Infinity, cx] });
+      const L = walk(crest, dir), isBack = (dir < 0) === (fwd > 0), n = isBack ? r.int(3, 4) : 2;
+      bundle(L, { n, rim: 0.035, W: r.range(0.05, 0.06), G: r.range(0.05, 0.065), D: reach(L, 0.05), run: 0.5, salt, half: dir > 0 ? [cx, Infinity] : [-Infinity, cx] });
     }
   }
   return out;
