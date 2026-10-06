@@ -171,8 +171,8 @@ export function talonsOnTips(out: Talons, rng: Rng, tips: Tip[], size: number, t
  * breaks as one branching hand of foam. Over the mass itself lie a few rows of smaller claws, of
  * which only the dark hooks show.
  */
-export function crown(out: Talons, rng: Rng, a: Path, b: Path, o: { rows: number; step: number; size: number; turn: number; curl?: number; from?: number; to?: number; grow?: number }) {
-  const f0 = o.from ?? 0, f1 = o.to ?? 1, curl = o.curl ?? 2.6;
+export function crown(out: Talons, rng: Rng, a: Path, b: Path, o: { rows: number; step: number; size: number; turn: number; curl?: number; from?: number; to?: number; grow?: number; out?: number }) {
+  const f0 = o.from ?? 0, f1 = o.to ?? 1, curl = o.curl ?? 2.6, outward = o.out ?? 0.75;
   // The mass: out to the crown's edge, rising and falling in rounded swells along it.
   const m = 64, inner: Pt[] = [], outer: Pt[] = [], ph = rng.random() * 6, wl = rng.range(5, 8);
   for (let i = 0; i <= m; i++) {
@@ -192,7 +192,7 @@ export function crown(out: Talons, rng: Rng, a: Path, b: Path, o: { rows: number
     const sz = o.size * g * rng.range(0.85, 1.25), len = sz * rng.range(2.3, 3.3);
     // Rooted well inside the mass so neighbouring fingers join at the base.
     const x = p[0] - dx / reach * len * 0.3, y = p[1] - dy / reach * len * 0.3;
-    const ang = Math.atan2(dy / reach * 0.75 + along[1] * 0.65, dx / reach * 0.75 + along[0] * 0.65) - o.turn * rng.range(0, 0.4);
+    const ang = Math.atan2(dy / reach * outward + along[1] * 0.65, dx / reach * outward + along[0] * 0.65) - o.turn * rng.range(0, 0.4);
     talon(out, rng, x, y, ang, len, sz * rng.range(0.36, 0.46), o.turn, curl * rng.range(0.9, 1.2), sz > 12 ? 2 : 1);
   }
   // Claws lying over the mass, smaller toward the crest's root.

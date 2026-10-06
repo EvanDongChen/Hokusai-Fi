@@ -13,7 +13,7 @@ import { Path } from '../core/curve';
 import { clamp, lerp, smoothstep } from '../core/math';
 import { fillPoly, inkedUnion, keyline, offset, polyPath, type Pt } from '../core/print';
 import { hash, hashFloat, Rng } from '../core/rng';
-import { lipSweep, waveReach, waveShape, zOf, type Wave } from '../world/wave';
+import { lipSweep, waveShape, zOf, type Wave } from '../world/wave';
 import { H, HZ, type Tint, type World } from '../world/world';
 import { crown, flecks, lobed, paintLayers, sliver, talonLayers, talons, talonsOnTips } from './ink';
 import { cellRange, depthLayer, inPad, L, spanInPad, tintRuns, type ChunkPlan, type Item } from './plan';
@@ -104,28 +104,6 @@ export function planSea(p: ChunkPlan) {
       p.items.push({ layer: depthLayer(zOf(yy) - 0.002, seed), key: 0, op: (ctx) => keyline(ctx, pts, lw, mix(t.key, t.sea, 0.35), 0.55) });
     }
   }
-
-  // Rows of small crests toward the horizon.
-  const ROWS = 9;
-  for (let row = 0; row < ROWS; row++) {
-    const f = (row + 0.5) / ROWS;
-    const base = HZ + 5 + Math.pow(f, 1.8) * (H * 0.94 - HZ - 5), hb = 5 + 64 * Math.pow(f, 1.6), sp = 44 + 240 * Math.pow(f, 1.3);
-    const [i0, i1] = cellRange(p, sp, hb * 8);
-    for (let i = i0; i <= i1; i++) {
-      const seed = hash(w.s, 22, row, i), r = new Rng(seed);
-      const x = (i + r.range(0, 0.85)) * sp, rough = roughAt(w, x);
-      if (!r.chance(0.35 + rough * 0.4)) continue;
-      const h = hb * r.range(0.6, 1.35) * lerp(0.6, 1.15, rough);
-      const wave: Wave = {
-        id: seed, x, base: base + r.range(-0.15, 0.15) * sp * 0.2, h, z: 0,
-        dir: w.dir, curl: r.range(0.1, 0.45) + rough * 0.15, back: h * r.range(2.2, 4.2), front: h * r.range(1.1, 1.8), foam: r.range(0.3, 0.65),
-      };
-      wave.z = zOf(wave.base) + r.random() * 1e-3;
-      if (inPad(p, x, waveReach(wave))) planWave(p, wave);
-    }
-  }
-
-  for (const wave of p.near.waves) if (inPad(p, wave.x, waveReach(wave))) planWave(p, wave);
 }
 
 /** Every block of one wave, in printing order. */

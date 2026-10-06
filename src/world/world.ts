@@ -23,7 +23,7 @@ export const H = 1000;
 export const CW = 740;
 export const FRAME_W = 1480;
 /** Where the sea meets the sky. */
-export const HZ = 800;
+export const HZ = 720;
 /** How many chunks either side can reach into a point. */
 const REACH = 2;
 

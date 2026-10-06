@@ -1,13 +1,13 @@
 // Plans a world chunk as an ordered list of draw operations. Runs in a worker or on the page.
 import { CW, H, World } from '../world/world';
-import { planBoats } from './boats';
 import { context2d, makeCanvas, type AnyCanvas } from './canvas';
-import { planGreats, planPrint } from './kanagawa';
+import { planPrint } from './kanagawa';
 import type { ChunkPlan, Op } from './plan';
 import { Press } from './press';
 import { planSea } from './sea';
 import { planShore } from './shore';
 import { planSky } from './sky';
+import { planSurf } from './surf';
 
 const PAD = 40;
 
@@ -18,8 +18,7 @@ export function planChunk(world: World, c: number): Op[] {
     planSky(p);
     planShore(p);
     planSea(p);
-    planGreats(p);
-    planBoats(p);
+    planSurf(p);
   }
   p.items.sort((a, b) => a.layer - b.layer || a.key - b.key);
   return p.items.map((i) => i.op);

@@ -79,8 +79,8 @@ export function waveShape(w: Wave): WaveShape {
 /** The body runs on below its foot, fading out into the sea (see planWave). */
 export const bodyDepth = (w: Wave) => w.h * 0.45 + 30;
 
-/** Depth into the picture of water whose foot is at y: 0 at the horizon, 1 just below the frame. */
-export const zOf = (y: number) => Math.min(1, Math.max(0, (y - 800) / 320));
+/** Depth into the picture of water whose foot is at y: 0 at the horizon (720), 1 just below the frame. */
+export const zOf = (y: number) => Math.min(1, Math.max(0, (y - 720) / 380));
 
 function build(w: Wave): WaveShape {
   const { h, curl, dir } = w;
