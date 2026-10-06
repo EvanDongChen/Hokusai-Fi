@@ -160,7 +160,7 @@ export class Press {
         // The grain meanders, bending round knots, so it never runs in straight rows.
         const gy = wy + 40 * noise.noise2(wx * 0.0021 + 5, wy * 0.0035) + 9 * noise.noise2(wx * 0.009, wy * 0.012 + 3);
         const ring = noise.noise2(wx * 0.0015 + 31, gy * 0.3);
-        grainRow[k] = noise.fbm(wx * 0.005, gy * 0.11, 2) * 0.6 + Math.sign(ring) * Math.pow(Math.abs(ring), 0.5) * 0.45;
+        grainRow[k] = noise.fbm(wx * 0.005, gy * 0.11, 2) * 0.6 + Math.sign(ring) * Math.pow(Math.abs(ring), 0.8) * 0.35;
         mottleRow[k] = noise.fbm(wx * 0.011 + 77, wy * 0.011, 3);
         // Where the sheet's tooth missed the ink, it did so in patches.
         clumpRow[k] = Math.max(0, noise.noise2(wx * 0.045 + 13, wy * 0.06));
@@ -174,13 +174,14 @@ export class Press {
         const clump = clumpRow[k0] + (clumpRow[k0 + 1] - clumpRow[k0]) * kt;
         // The sheet's own fibres take ink a little more or less readily.
         const fb = fib[((wy | 0) & 255) * 256 + ((wx | 0) & 255)];
-        const speck = white(gx, y, this.seed) < wear.speckle * clump * (1 + 2 * Math.max(0, fb)) ? 0.55 : 1;
+        const speck = white(gx, y, this.seed) < wear.speckle * clump * (1 + 2 * Math.max(0, fb)) ? 0.7 : 1;
 
         // The colour blocks.
         const d = dm[i];
         const pool = 1 + wear.pool * Math.max(0, d - blur[i]) / (d + 0.08);
-        const field = clamp(d * 1.4, 0, 1);
-        const m = (1 + wear.grain * grain * field + wear.mottle * mottle - 0.18 * fb) * pool * speck * (1 - wear.fade);
+        // Grain shows most in mid-toned fields; in the darkest the ink fills it.
+        const field = clamp(d * 1.4, 0, 1) / (1 + d * 0.8);
+        const m = (1 + wear.grain * grain * field + wear.mottle * mottle * field - 0.18 * fb) * pool * speck * (1 - wear.fade);
         let r = dr[i] * m, g = dg[i] * m, b = db[i] * m;
 
         // The key block: crisp, but starved here and there along its lines.

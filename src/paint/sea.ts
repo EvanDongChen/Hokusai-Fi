@@ -15,7 +15,7 @@ import { fillPoly, inkedUnion, keyline, offset, polyPath, type Pt } from '../cor
 import { hash, hashFloat, Rng } from '../core/rng';
 import { lipSweep, waveReach, waveShape, zOf, type Wave } from '../world/wave';
 import { H, HZ, type Tint, type World } from '../world/world';
-import { crown, flecks, lobed, paintLayers, talons, talonsOnTips } from './ink';
+import { crown, flecks, lobed, paintLayers, sliver, talons, talonsOnTips } from './ink';
 import { cellRange, depthLayer, inPad, L, spanInPad, tintRuns, type ChunkPlan, type Item } from './plan';
 
 /** The sea's ground colour at depth y. */
@@ -149,7 +149,7 @@ export function planWave(p: ChunkPlan, w: Wave) {
 
   // Bigger waves are carved as the print's are: a white back, the blue rising into it in fingers
   // tipped with talons, and a crown of talons on the lip.
-  if (w.h > 70) {
+  if (w.h > 28) {
     carved(push, s, w, t, key0, lw, r);
     return;
   }
@@ -313,22 +313,40 @@ function carved(push: (op: Item['op']) => void, s: ReturnType<typeof waveShape>,
   const end = Math.min(s.top.length - 1, s.lipAt + Math.round((s.top.length - s.lipAt) * 0.4));
   const seg = s.top.slice(0, end + 1), n = seg.length;
   const edge = offset(seg, (i) => w.dir * w.h * 0.24 * smoothstep(0, 0.35, i / n) * (i > s.lipAt ? Math.max(0.3, 1 - (i - s.lipAt) / Math.max(1, end - s.lipAt)) : 1));
-  const lb = lobed(new Path(edge), 0, 1, { period: Math.max(14, w.h * 0.09), amp: w.h * 0.06, side: -w.dir as 1 | -1, lean: 0.45 }, r);
+  const lb = lobed(new Path(edge), 0, 1, { period: Math.max(6, w.h * 0.09), amp: w.h * 0.06, side: -w.dir as 1 | -1, lean: 0.45 }, r);
   const band = seg.concat(lb.edge.slice().reverse());
-  const tl = talons(), size = clamp(w.h * 0.075, 8, 34);
+  const tl = talons(), size = clamp(w.h * 0.075, 3.5, 34);
   talonsOnTips(tl, r, lb.tips, size, w.dir);
   if (w.curl > 0.4) crown(tl, r, new Path(s.lip.map((l) => l.p)), new Path(s.inner), { rows: 2, step: size * 0.9, size, turn: w.dir, from: 0.05, to: 0.9 });
   const dots = flecks(s.body, 3, 1.4, Math.max(2, w.h * 0.008), r);
+  // Stripes of paler and deeper blue run down the back under the foam, parallel to its surface.
+  const stripes: { pts: Pt[]; ink: RGB }[] = [], back = seg.slice(0, s.lipAt + 1);
+  if (back.length > 3) {
+    const depthAt = (k: number) => (i: number) => w.dir * w.h * k * smoothstep(0, 0.3, i / back.length);
+    const A = new Path(offset(back, depthAt(0.27))), B = new Path(offset(back, depthAt(0.8)));
+    const rows = w.h > 160 ? 6 : w.h > 70 ? 4 : 2;
+    for (let k = 0; k < rows; k++) {
+      let v = r.range(0.05, 0.25);
+      while (v < 0.95) {
+        const v1 = Math.min(1, v + r.range(0.3, 0.6));
+        stripes.push({ pts: sliver(A, B, (k + 0.5) / rows + r.range(-0.08, 0.08), r.range(0.035, 0.07), v, v1, { wave: r.range(1, 4), ph: r.range(0, 6), minW: 2.5 }), ink: k % 2 ? t.deep : mix(t.band, t.seaNear, 0.35) });
+        v = v1 + r.range(0.04, 0.15);
+      }
+    }
+  }
   push((ctx) => {
     ctx.save();
     ctx.beginPath();
     polyPath(ctx, s.body);
     ctx.clip();
+    for (const st of stripes) fillPoly(ctx, st.pts, st.ink);
     fillPoly(ctx, band, t.foam);
     ctx.fillStyle = css(t.foam);
     ctx.beginPath();
     for (const d of dots) polyPath(ctx, d);
     ctx.fill();
+    // The key block outlines where the blue rises into the foam.
+    keyline(ctx, lb.edge, lw * 0.75, key0);
     ctx.restore();
   });
   push((ctx) => keyline(ctx, s.top.concat(s.inner.slice().reverse(), s.face), lw, key0));
