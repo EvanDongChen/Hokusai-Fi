@@ -9,11 +9,13 @@
 //    spray falling from them like snow.
 
 import { css, mix, type RGB } from '../core/color';
+import { Path } from '../core/curve';
 import { clamp, lerp, smoothstep } from '../core/math';
 import { fillPoly, inkedUnion, keyline, offset, polyPath, type Pt } from '../core/print';
 import { hash, hashFloat, Rng } from '../core/rng';
 import { lipSweep, waveReach, waveShape, zOf, type Wave } from '../world/wave';
 import { H, HZ, type Tint, type World } from '../world/world';
+import { crown, flecks, lobed, paintLayers, talons, talonsOnTips } from './ink';
 import { cellRange, depthLayer, inPad, L, spanInPad, tintRuns, type ChunkPlan, type Item } from './plan';
 
 /** The sea's ground colour at depth y. */
@@ -144,6 +146,13 @@ export function planWave(p: ChunkPlan, w: Wave) {
     polyPath(ctx, s.body);
     ctx.fill();
   });
+
+  // Bigger waves are carved as the print's are: a white back, the blue rising into it in fingers
+  // tipped with talons, and a crown of talons on the lip.
+  if (w.h > 70) {
+    carved(push, s, w, t, key0, lw, r);
+    return;
+  }
 
   // The back of the wave is paper, fringed into the blue: a pale-indigo band under a white one,
   // both sending uneven fingers down toward the face, as on the great wave's back.
@@ -298,3 +307,34 @@ function spray(s: ReturnType<typeof waveShape>, w: Wave, out: [number, number, n
     out.push([x, y, R * r.range(0.006, 0.02) + 0.5]);
   }
 }
+
+/** A wave carved in the manner of the print (see ink.ts). */
+function carved(push: (op: Item['op']) => void, s: ReturnType<typeof waveShape>, w: Wave, t: Tint, key0: RGB, lw: number, r: Rng) {
+  const end = Math.min(s.top.length - 1, s.lipAt + Math.round((s.top.length - s.lipAt) * 0.4));
+  const seg = s.top.slice(0, end + 1), n = seg.length;
+  const edge = offset(seg, (i) => w.dir * w.h * 0.24 * smoothstep(0, 0.35, i / n) * (i > s.lipAt ? Math.max(0.3, 1 - (i - s.lipAt) / Math.max(1, end - s.lipAt)) : 1));
+  const lb = lobed(new Path(edge), 0, 1, { period: Math.max(14, w.h * 0.09), amp: w.h * 0.06, side: -w.dir as 1 | -1, lean: 0.45 }, r);
+  const band = seg.concat(lb.edge.slice().reverse());
+  const tl = talons(), size = clamp(w.h * 0.075, 8, 34);
+  talonsOnTips(tl, r, lb.tips, size, w.dir);
+  if (w.curl > 0.4) crown(tl, r, new Path(s.lip.map((l) => l.p)), new Path(s.inner), { rows: 2, step: size * 0.9, size, turn: w.dir, from: 0.05, to: 0.9 });
+  const dots = flecks(s.body, 3, 1.4, Math.max(2, w.h * 0.008), r);
+  push((ctx) => {
+    ctx.save();
+    ctx.beginPath();
+    polyPath(ctx, s.body);
+    ctx.clip();
+    fillPoly(ctx, band, t.foam);
+    ctx.fillStyle = css(t.foam);
+    ctx.beginPath();
+    for (const d of dots) polyPath(ctx, d);
+    ctx.fill();
+    ctx.restore();
+  });
+  push((ctx) => keyline(ctx, s.top.concat(s.inner.slice().reverse(), s.face), lw, key0));
+  push((ctx) => paintLayers(ctx, [{ ink: 'paper', fill: tl.mass }, { ink: 'aqua', fill: tl.halo }, { ink: 'paper', fill: tl.body }, { ink: 'key', fill: tl.hook }],
+    { ...SEA_INKS, paper: t.foam, aqua: t.band, key: key0 }));
+}
+
+/** Inks the carved waves use beyond the tint's own. */
+const SEA_INKS = { blue: [52, 106, 143], deep: [37, 64, 96], shade: [140, 146, 144], boat: [228, 199, 160], boatDark: [150, 112, 70], cloth: [44, 70, 104], skin: [236, 210, 172], hair: [30, 30, 34], snow: [250, 248, 238] } as const;
