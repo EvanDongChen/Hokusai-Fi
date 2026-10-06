@@ -2,11 +2,21 @@ import { Life, type View } from './anim/life';
 import { Music } from './audio/music';
 import { clamp } from './core/math';
 import { CJK, drawCartouche } from './paint/cartouche';
+import { palette } from './paint/kanagawa';
 import { ChunkPool } from './paint/pool';
 import { renderPostcard } from './postcard';
+import { css } from './core/color';
+import { hash } from './core/rng';
+import { ORIGINAL } from './world/kanagawa';
 import { BIOME_NAMES, CW, FRAME_W, H, MOOD_NAMES, World } from './world/world';
 
-type Mode = 'gallery' | 'wander';
+type Mode = 'studio' | 'voyage';
+
+/** The inks in the tray, as the printer calls them. */
+const INKS = [
+  ['paper', '胡粉', 'shell white'], ['aqua', '浅葱', 'pale indigo'], ['blue', '藍', 'Prussian blue'], ['deep', '紺', 'deep indigo'],
+  ['key', '墨', 'key block'], ['boat', '黄土', 'ochre'], ['shade', '鼠', 'grey'],
+] as const;
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
 
@@ -28,9 +38,9 @@ const RI = 1000;
 
 class App {
   private app = $('app');
-  private wanderCanvas = $<HTMLCanvasElement>('wander-canvas');
+  private wanderCanvas = $<HTMLCanvasElement>('voyage-canvas');
   private wctx = this.wanderCanvas.getContext('2d')!;
-  private galleryCanvas = $<HTMLCanvasElement>('gallery-canvas');
+  private galleryCanvas = $<HTMLCanvasElement>('print-canvas');
   private gctx = this.galleryCanvas.getContext('2d')!;
   private seedInput = $<HTMLInputElement>('seed-input');
   private speedInput = $<HTMLInputElement>('speed');
@@ -40,8 +50,9 @@ class App {
   private music = new Music();
   private about = $('about');
   private toastEl = $('toast');
+  private radio = document.querySelector<HTMLElement>('.radio')!;
 
-  private mode: Mode = 'gallery';
+  private mode: Mode = 'studio';
   private world!: World;
   private pool!: ChunkPool;
   private life!: Life;
@@ -77,7 +88,7 @@ class App {
     this.setSeed(params.get('seed') || randomSeed());
     // A shared link can point at a spot along the sea.
     if (params.has('x')) this.camX = Number(params.get('x')) || 0;
-    this.setMode(params.get('mode') === 'wander' ? 'wander' : 'gallery');
+    this.setMode(params.get('mode') === 'voyage' || params.get('mode') === 'wander' ? 'voyage' : 'studio');
     this.setPlaying(this.playing);
     this.setAnimating(this.animating);
     this.setSound(false);
@@ -103,19 +114,54 @@ class App {
     this.galleryCanvas.width = this.pool.chunkPx * 2;
     this.galleryCanvas.height = this.pool.chunkPy;
 
-    this.seedInput.value = seed;
-    $('placard-no').textContent = pretty(seed);
-    $('hud-seed').textContent = pretty(seed);
-    $('stroke-count').textContent = 'Inking the blocks…';
-    $('gallery-progress').style.opacity = '1';
+    this.seedInput.value = pretty(seed);
+    $('edition').textContent = pretty(seed);
+    $('edition-note').textContent = this.world.original ? 'as Hokusai drew it' : this.world.flipped ? 'mirrored' : '';
+    $('marks').textContent = 'pulling the blocks…';
+    $('pull').style.opacity = '1';
+    $('weather').textContent = MOOD_NAMES[this.world.mood];
+    this.tune();
+    this.fillTray();
     this.syncUrl();
+  }
+
+  /** The radio's dial: every sea has its own frequency on the FM band. */
+  private tune() {
+    const f = this.world.original ? 1 : (hash(this.world.s, 0xf3) % 1000) / 1000;
+    const mhz = 76 + f * 32;
+    $('needle').parentElement!.style.setProperty('--tune', f.toFixed(3));
+    $('freq').textContent = `FM ${mhz.toFixed(1)}`;
+    this.radio.classList.add('tuning');
+    setTimeout(() => this.radio.classList.remove('tuning'), 900);
+  }
+
+  /** The tray holds a dish of each ink this edition is printed in. */
+  private fillTray() {
+    const pal = palette(this.world), ul = $('inks');
+    ul.replaceChildren(...INKS.map(([k, jp, en]) => {
+      const li = document.createElement('li');
+      li.innerHTML = `<span class="dish" style="--c:${css(pal[k])}"></span><span class="ink-name"><b lang="ja">${jp}</b><span>${en}</span></span>`;
+      return li;
+    }));
+  }
+
+  private updateRadio() {
+    const on = this.music.on;
+    this.radio.classList.toggle('on', on);
+    const p = $('playing'), i = this.music.info();
+    const text = on ? `♪ koto in ${i.scale} · ${i.key} · ${i.bpm} bpm` : 'radio off · press play';
+    if (p.textContent !== text) p.textContent = text;
+    $('vu').style.height = `${Math.round(this.music.level() * 100)}%`;
   }
 
   private setMode(mode: Mode) {
     this.mode = mode;
     this.app.dataset.mode = mode;
-    document.querySelectorAll<HTMLButtonElement>('.segmented button').forEach((b) => b.setAttribute('aria-selected', String(b.dataset.mode === mode)));
-    if (mode === 'wander') this.resize();
+    const b = $('btn-mode'), sail = mode === 'studio';
+    b.querySelector('span')!.textContent = sail ? 'Set sail' : 'Back to the bench';
+    b.title = sail ? 'Set sail along the sea (W)' : 'Back to the bench (G)';
+    b.setAttribute('aria-label', sail ? 'Set sail' : 'Back to the bench');
+    if (mode === 'voyage') this.resize();
     this.dirty = true;
     this.syncUrl();
   }
@@ -142,17 +188,16 @@ class App {
       this.toast('Sound is not available here');
       on = false;
     }
-    this.soundBtn.classList.toggle('active', on);
-    this.soundBtn.classList.toggle('muted', !on);
     this.soundBtn.setAttribute('aria-pressed', String(on));
-    this.soundBtn.title = on ? 'Mute (M)' : 'Play the lo-fi soundtrack (M)';
-    this.soundBtn.setAttribute('aria-label', on ? 'Mute the soundtrack' : 'Play the soundtrack');
+    this.soundBtn.title = on ? 'Turn the radio off (M)' : 'Play the radio (M)';
+    this.soundBtn.setAttribute('aria-label', on ? 'Turn the radio off' : 'Play the radio');
+    this.updateRadio();
   }
 
   private syncUrl() {
     const url = new URL(location.href);
     url.searchParams.set('seed', this.world.seed);
-    if (this.mode === 'wander') url.searchParams.set('mode', 'wander');
+    if (this.mode === 'voyage') url.searchParams.set('mode', 'voyage');
     else url.searchParams.delete('mode');
     for (const k of ['intro', 'speed', 'animate', 'x']) url.searchParams.delete(k);
     history.replaceState(null, '', url);
@@ -160,7 +205,7 @@ class App {
 
   // ------------------------------------------------------------ frame loop
 
-  /** Canvas pixels per world unit in wander mode. */
+  /** Canvas pixels per world unit while sailing. */
   private get viewScale() { return this.wanderCanvas.height / H; }
   private get viewW() { return this.wanderCanvas.width / this.viewScale; }
 
@@ -172,7 +217,7 @@ class App {
   }
 
   private wanted(): number[] {
-    if (this.mode === 'gallery') return [0, 1];
+    if (this.mode === 'studio') return [0, 1];
     const vis = this.visibleChunks();
     const a = vis[0], b = vis[vis.length - 1];
     const forward = this.vel + (this.playing ? this.speed : 0) >= 0;
@@ -192,7 +237,7 @@ class App {
       this.slowFor = 0;
     }
 
-    if (this.mode === 'wander' && !this.dragging) {
+    if (this.mode === 'voyage' && !this.dragging) {
       const before = this.camX;
       this.camX += ((this.playing ? this.speed : 0) + this.vel) * dt;
       this.vel *= Math.exp(-dt * 2.5);
@@ -200,38 +245,40 @@ class App {
       if (this.camX !== before) this.dirty = true;
     }
 
-    const sceneX = this.mode === 'gallery' ? FRAME_W / 2 : this.camX + this.viewW / 2;
+    const sceneX = this.mode === 'studio' ? FRAME_W / 2 : this.camX + this.viewW / 2;
     if (t - this.lastScene > 400) {
       this.lastScene = t;
-      this.music.setScene({ x: sceneX, mode: this.mode });
-      const mood = MOOD_NAMES[this.world.moodAt(sceneX)], el = $('hud-mood');
+      this.music.setScene({ x: sceneX, mode: this.mode === 'studio' ? 'gallery' : 'wander' });
+      const mood = MOOD_NAMES[this.world.moodAt(sceneX)], el = $('log-mood'), sea = BIOME_NAMES[this.world.biomeAt(sceneX)];
       if (el.textContent !== mood) el.textContent = mood;
+      if ($('log-sea').textContent !== sea) $('log-sea').textContent = sea;
     }
 
     const wanted = this.wanted();
     this.pool.request(wanted);
 
-    const view: View = this.mode === 'gallery'
+    const view: View = this.mode === 'studio'
       ? { x0: 0, x1: FRAME_W, scale: this.galleryCanvas.width / FRAME_W, offsetX: 0 }
       : { x0: this.camX, x1: this.camX + this.viewW, scale: this.viewScale, offsetX: 0 };
     if (this.animating) this.life.update(dt, view);
 
     if (this.dirty || this.animating) {
-      if (this.mode === 'gallery') this.drawGallery(view);
+      if (this.mode === 'studio') this.drawGallery(view);
       else this.drawWander(view);
       this.dirty = false;
     }
 
-    if (this.mode === 'gallery') this.updateGalleryProgress();
+    if (this.mode === 'studio') this.updateGalleryProgress();
     else {
       const busy = this.visibleChunks().some((c) => !this.pool.get(c)?.done);
-      $('hud-painting').classList.toggle('on', busy);
-      $('hud-distance').textContent = (this.camX / RI).toFixed(2);
+      $('log-printing').classList.toggle('on', busy);
+      $('log-distance').textContent = (this.camX / RI).toFixed(2);
     }
+    this.updateRadio();
 
     const keep = new Set(wanted), here = World.chunkOf(this.camX);
-    this.pool.evict((c) => keep.has(c) || c === 0 || c === 1 || (this.mode === 'wander' && Math.abs(c - here) <= 4));
-    this.world.prune(this.mode === 'gallery' ? 0 : here);
+    this.pool.evict((c) => keep.has(c) || c === 0 || c === 1 || (this.mode === 'voyage' && Math.abs(c - here) <= 4));
+    this.world.prune(this.mode === 'studio' ? 0 : here);
     requestAnimationFrame((n) => this.loop(n));
   }
 
@@ -252,11 +299,14 @@ class App {
   private updateGalleryProgress() {
     const a = this.pool.get(0), b = this.pool.get(1);
     const p = ((a?.progress ?? 0) + (b?.progress ?? 0)) / 2;
-    const bar = $('gallery-progress');
+    const bar = $('pull');
     bar.style.width = `${(p * 100).toFixed(1)}%`;
     bar.style.opacity = p >= 1 ? '0' : '1';
-    if (a?.strokes && b?.strokes) {
-      const text = `${(a.strokes + b.strokes).toLocaleString()} carved blocks`, count = $('stroke-count');
+    // The dishes light up in turn as the print is pulled: a progress bar in ink.
+    const dishes = $('inks').children;
+    for (let i = 0; i < dishes.length; i++) dishes[i].classList.toggle('used', p >= 1 || p > i / dishes.length);
+    if (p >= 1 && a?.strokes && b?.strokes) {
+      const text = `pulled in ${(a.strokes + b.strokes).toLocaleString()} impressions`, count = $('marks');
       if (count.textContent !== text) count.textContent = text;
     }
   }
@@ -281,8 +331,8 @@ class App {
   private resize() {
     // Wander redraws the whole screen every frame, so keep its backing store modest on dense displays.
     const dpr = Math.min(devicePixelRatio || 1, coarse ? 1.25 : 1.5);
-    this.wanderCanvas.width = Math.round(innerWidth * dpr);
-    this.wanderCanvas.height = Math.round(innerHeight * dpr);
+    this.wanderCanvas.width = Math.round(this.wanderCanvas.clientWidth * dpr);
+    this.wanderCanvas.height = Math.round(this.wanderCanvas.clientHeight * dpr);
     this.dirty = true;
   }
 
@@ -291,7 +341,7 @@ class App {
   /** The visible print, composed from its chunks, plus where it sits in the world. */
   private compose() {
     const s = this.pool.scale, out = document.createElement('canvas');
-    const x0 = this.mode === 'gallery' ? 0 : this.camX, w = this.mode === 'gallery' ? FRAME_W : this.viewW;
+    const x0 = this.mode === 'studio' ? 0 : this.camX, w = this.mode === 'studio' ? FRAME_W : this.viewW;
     out.width = Math.round(w * s);
     out.height = this.pool.chunkPy;
     const ctx = out.getContext('2d')!;
@@ -329,15 +379,15 @@ class App {
     }, 'image/png');
   }
 
-  /** Save the view as a postcard carrying the same details as the gallery placard. */
+  /** Save the view as a postcard carrying the same details as the pencil notes and the radio. */
   private async save(plain = false) {
     // Wait (briefly) for the visible chunks to finish printing, so the postcard is never half-blank.
-    const visible = () => (this.mode === 'gallery' ? [0, 1] : this.visibleChunks());
+    const visible = () => (this.mode === 'studio' ? [0, 1] : this.visibleChunks());
     if (visible().some((c) => !this.pool.get(c)?.done)) {
       this.toast('Still printing. Your postcard will be ready in a moment…');
       for (let i = 0; i < 100 && visible().some((c) => !this.pool.get(c)?.done); i++) await new Promise((r) => setTimeout(r, 200));
     }
-    const { out, x0, w, strokes } = this.compose(), wander = this.mode === 'wander', wd = this.world;
+    const { out, x0, w, strokes } = this.compose(), wander = this.mode === 'voyage', wd = this.world;
     const mid = x0 + w / 2, suffix = wander ? `-${Math.round(this.camX)}` : '';
     if (plain) return this.download(out, `great-wave-${wd.seed}${suffix}.png`);
 
@@ -354,14 +404,14 @@ class App {
     const card = await renderPostcard({
       art: out, seed: wd.seed, title: 'The Great Wave', details,
       lines: ['After Katsushika Hokusai', 'Procedural woodblock print, 2026'],
-      place: wander ? `${(mid / RI).toFixed(2)} ri out to sea` : 'The gallery',
+      place: wander ? `${(mid / RI).toFixed(2)} ri out to sea` : 'The print studio',
     });
     this.download(card, `postcard-${wd.seed}${suffix}.png`);
   }
 
   private async share() {
     const url = new URL(location.href);
-    if (this.mode === 'wander') url.searchParams.set('x', String(Math.round(this.camX)));
+    if (this.mode === 'voyage') url.searchParams.set('x', String(Math.round(this.camX)));
     const text = `The Great Wave, No. ${pretty(this.world.seed)}`;
     try {
       if (navigator.share && matchMedia('(pointer: coarse)').matches) {
@@ -394,7 +444,7 @@ class App {
 
   private newSeed(seed = randomSeed()) {
     this.setSeed(seed);
-    this.toast(`A new sea: ${pretty(seed)}`);
+    this.toast(seed === ORIGINAL ? 'Tuned to 1831: the sea as Hokusai drew it' : `Tuned to ${pretty(seed)}`);
   }
 
   private toggleAbout(open = this.about.hidden) {
@@ -404,9 +454,7 @@ class App {
   // ------------------------------------------------------------ input
 
   private bind() {
-    document.querySelectorAll<HTMLButtonElement>('.segmented button').forEach((b) => {
-      b.onclick = () => this.setMode(b.dataset.mode as Mode);
-    });
+    $('btn-mode').onclick = () => this.setMode(this.mode === 'studio' ? 'voyage' : 'studio');
     $('btn-new').onclick = () => this.newSeed();
     $('btn-save').onclick = () => this.save();
     $('btn-share').onclick = () => this.share();
@@ -429,14 +477,14 @@ class App {
     });
     addEventListener('resize', () => this.resize());
 
-    // A swipe across the gallery steps into the print and keeps rowing.
-    const gallery = document.querySelector<HTMLElement>('.gallery')!;
+    // A swipe across the print steps into it and keeps rowing.
+    const gallery = document.querySelector<HTMLElement>('.bench')!;
     let sx = 0, sy = 0, st = 0;
     gallery.addEventListener('pointerdown', (e) => { sx = e.clientX; sy = e.clientY; st = performance.now(); });
     gallery.addEventListener('pointerup', (e) => {
       const dx = e.clientX - sx, dy = e.clientY - sy;
-      if (this.mode !== 'gallery' || Math.abs(dx) < 60 || Math.abs(dx) < Math.abs(dy) * 1.5) return;
-      this.setMode('wander');
+      if (this.mode !== 'studio' || Math.abs(dx) < 60 || Math.abs(dx) < Math.abs(dy) * 1.5) return;
+      this.setMode('voyage');
       this.vel = clamp((-dx / Math.max(0.12, (performance.now() - st) / 1000)) * 0.6, -1500, 1500);
     });
 
@@ -480,8 +528,8 @@ class App {
     addEventListener('keydown', (e) => {
       if (e.metaKey || e.ctrlKey || e.altKey) return;
       const k = e.key.toLowerCase();
-      if (k === 'g') this.setMode('gallery');
-      else if (k === 'w') this.setMode('wander');
+      if (k === 'g') this.setMode('studio');
+      else if (k === 'w') this.setMode('voyage');
       else if (k === 'n') this.newSeed();
       else if (k === 's') this.save(e.shiftKey);
       else if (k === 'm') this.setSound(!this.music.on);
@@ -490,9 +538,9 @@ class App {
       else if (k === 'f') this.toggleFullscreen();
       else if (k === '?' || k === 'i') this.toggleAbout();
       else if (k === 'escape') this.toggleAbout(false);
-      else if (k === ' ' && this.mode === 'wander') { e.preventDefault(); this.setPlaying(!this.playing); }
+      else if (k === ' ' && this.mode === 'voyage') { e.preventDefault(); this.setPlaying(!this.playing); }
       else if (k === 'arrowright' || k === 'arrowleft') {
-        if (this.mode === 'gallery') this.setMode('wander');
+        if (this.mode === 'studio') this.setMode('voyage');
         this.vel += k === 'arrowright' ? 700 : -700;
       }
     });

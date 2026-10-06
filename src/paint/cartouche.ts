@@ -3,11 +3,12 @@
 
 import { css, type RGB } from '../core/color';
 import { hash, hashString, Rng } from '../core/rng';
-import { FRAME_W, H, type World } from '../world/world';
+import { composition } from '../world/kanagawa';
+import { type World } from '../world/world';
 import type { View } from '../anim/life';
 
 /** Right-to-left columns: the series, then the title, as in the original's cartouche. */
-const TITLE = ['冨嶽無限景', '神奈川沖', '浪裏'];
+const TITLE = ['冨嶽無限景', '神奈川沖浪裏'];
 /** "Printed by machine", in place of the artist's signature. */
 const SIGNED = ['電脳摺'];
 
@@ -19,37 +20,36 @@ function column(g: CanvasRenderingContext2D, text: string, x: number, y: number,
   for (const [i, ch] of [...text].entries()) g.fillText(ch, x, y + i * size * 1.06);
 }
 
-/** Draws the cartouche over the print at its place in the classic frame. */
+/** Draws the cartouche over the print at its place in the composition: a tall panel, as Hokusai's. */
 export function drawCartouche(g: CanvasRenderingContext2D, view: View, world: World) {
   const s = view.scale, X = (x: number) => (x - view.x0) * s + view.offsetX;
-  const t = world.tintAt(FRAME_W * 0.08), size = 15;
-  const w = 3 * size * 1.5 + 10, h = 5 * size * 1.06 + 16;
-  const x0 = world.flipped ? FRAME_W - 26 - w - size * 2.2 : 26, y0 = H * 0.035;
+  const [x0, y0] = composition(world).cartouche, t = world.tintAt(x0), size = 22;
+  const w = 2 * size * 1.25 + 12, h = 6 * size * 1.08 + 20;
   if (X(x0 + w + 80) < 0 || X(x0 - 80) > (view.x1 - view.x0) * s + view.offsetX) return;
 
   g.save();
   g.translate(X(x0), y0 * s);
   g.scale(s, s);
   // The cartouche: a pale panel with a double rule.
-  g.fillStyle = css(PAPER, 0.92);
+  g.fillStyle = css(PAPER, 0.9);
   g.fillRect(0, 0, w, h);
-  g.strokeStyle = css(t.key, 0.85);
-  g.lineWidth = 1.2;
+  g.strokeStyle = css(t.key, 0.8);
+  g.lineWidth = 1.4;
   g.strokeRect(0.5, 0.5, w - 1, h - 1);
   g.lineWidth = 0.6;
-  g.strokeRect(3, 3, w - 6, h - 6);
-  g.fillStyle = css(t.key, 0.92);
+  g.strokeRect(3.5, 3.5, w - 7, h - 7);
+  g.fillStyle = css(t.key, 0.9);
   g.font = `600 ${size}px ${CJK}`;
   g.textAlign = 'center';
   g.textBaseline = 'top';
-  TITLE.forEach((col, i) => column(g, col, w - 8 - size * 0.75 - i * size * 1.5, 8, size));
+  TITLE.forEach((col, i) => column(g, col, w - 6 - size * 0.7 - i * size * 1.25, 10, size));
 
-  // Beside it, the signature column and the seal.
-  const sx = world.flipped ? -size * 1.2 : w + size * 1.2;
-  g.fillStyle = css(t.key, 0.85);
-  g.font = `500 ${size * 0.9}px ${CJK}`;
-  column(g, SIGNED[0], sx, 4, size * 0.9);
-  seal(g, sx - size * 0.62, 4 + size * 3.1, size * 1.24, world.seed);
+  // Beside it, outside the panel, the signature column and the seal.
+  const sx = world.flipped ? w + size * 1.4 : -size * 1.3;
+  g.fillStyle = css(t.key, 0.82);
+  g.font = `500 ${size * 0.95}px ${CJK}`;
+  column(g, SIGNED[0], sx, size * 4, size * 0.95);
+  seal(g, sx - size * 0.6, size * 4 + size * 3.2, size * 1.2, world.seed);
   g.restore();
 }
 

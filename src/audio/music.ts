@@ -24,6 +24,9 @@ const PENTA: Record<Mood, readonly number[]> = {
   night: [0, 1, 5, 7, 8], storm: [0, 1, 5, 6, 10], snow: [0, 2, 3, 7, 8],
 };
 const BPM: Record<Mood, number> = { day: 80, dawn: 76, dusk: 78, night: 70, storm: 88, snow: 68 };
+/** What the koto's pentatonic is called, for the radio's display. */
+const SCALE_NAMES: Record<Mood, string> = { day: 'yo', dawn: 'ryo', dusk: 'ritsu', night: 'in', storm: 'iwato', snow: 'hirajoshi' };
+const NOTE_NAMES = ['C', 'C♯', 'D', 'E♭', 'E', 'F', 'F♯', 'G', 'A♭', 'A', 'B♭', 'B'];
 
 /** Chord loops as scale degrees. */
 const LOOPS = [[0, 5, 3, 4], [0, 3, 5, 4], [0, 6, 5, 3], [3, 4, 0, 0], [0, 2, 3, 4], [5, 3, 0, 4]];
@@ -70,7 +73,25 @@ export class Music {
   private nextBell = 0;
   private nextFlute = 0;
 
+  private meter: AnalyserNode | null = null;
+  private meterData = new Float32Array(512);
+
   get on() { return this.enabled; }
+
+  /** What the radio's display shows: the key, the scale the koto plays in, and the tempo. */
+  info(): { key: string; scale: string; bpm: number } {
+    const m = this.world ? (this.scene.mode === 'gallery' ? this.world.mood : this.world.moodAt(this.scene.x)) : 'day';
+    return { key: NOTE_NAMES[this.root % 12], scale: SCALE_NAMES[m], bpm: BPM[m] };
+  }
+
+  /** How loud the music is right now, 0..1, for the radio's needle. */
+  level(): number {
+    if (!this.meter || !this.enabled) return 0;
+    this.meter.getFloatTimeDomainData(this.meterData);
+    let sum = 0;
+    for (const v of this.meterData) sum += v * v;
+    return Math.min(1, Math.sqrt(sum / this.meterData.length) * 4);
+  }
 
   setWorld(world: World) {
     this.world = world;
@@ -138,6 +159,9 @@ export class Music {
     comp.ratio.value = 3;
     this.bus = ctx.createGain();
     this.bus.connect(comp).connect(tape).connect(this.master).connect(ctx.destination);
+    this.meter = ctx.createAnalyser();
+    this.meter.fftSize = 512;
+    this.master.connect(this.meter);
 
     // A room: noise-burst impulse response.
     const conv = ctx.createConvolver(), len = sr * 2.4, ir = ctx.createBuffer(2, len, sr);

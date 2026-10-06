@@ -4,159 +4,143 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <title>Hokusai-Fi</title>
-  <meta name="description" content="An endless Great Wave, procedurally printed block by block, with a generative lo-fi soundtrack." />
-  <meta name="theme-color" content="#0a0f1c" />
+  <meta name="description" content="A print studio and lo-fi radio: every seed pulls a new Great Wave from procedurally carved blocks, to a generative lo-fi soundtrack." />
+  <meta name="theme-color" content="#140e0b" />
   <meta property="og:type" content="website" />
   <meta property="og:title" content="Hokusai-Fi" />
-  <meta property="og:description" content="An endless Great Wave off Kanagawa, printed block by block with code, to lo-fi beats. Every link is its own sea." />
+  <meta property="og:description" content="A print studio and lo-fi radio. Tune in and a new Great Wave is pulled from code, block by block. Every station is its own sea." />
   <meta property="og:image" content="https://evandongchen.github.io/Hokusai-Fi/og.jpg" />
   <meta property="og:url" content="https://evandongchen.github.io/Hokusai-Fi/" />
   <meta name="twitter:card" content="summary_large_image" />
-  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%231f3d6c'/%3E%3Cpath d='M5 24c3-1 5-8 9-12s9-4 11 0-2 7-5 5 0-5 2-4' fill='none' stroke='%23f3ebd6' stroke-width='2.4' stroke-linecap='round'/%3E%3C/svg%3E" />
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='5' fill='%23b8402c'/%3E%3Cpath d='M6 23c3-1 5-7 9-10s8-3 10 0-2 6-4.5 4.4 0-4.4 2-3.6' fill='none' stroke='%23f3e8d2' stroke-width='2.4' stroke-linecap='round'/%3E%3C/svg%3E" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,500;0,600;1,400;1,500&family=Inter:wght@400;500;600&display=swap" rel="stylesheet" />
-  <!-- Only the characters the cartouche, seal and placard use, so the Japanese font stays tiny. -->
-  <link href="https://fonts.googleapis.com/css2?family=Noto+Serif+JP:wght@500;600&text=%E5%86%A8%E5%B6%BD%E7%84%A1%E9%99%90%E6%99%AF%E7%A5%9E%E5%A5%88%E5%B7%9D%E6%B2%96%E6%B5%AA%E8%A3%8F%E9%9B%BB%E8%84%B3%E6%91%BA%E5%8C%97%E6%96%8E&display=swap" rel="stylesheet" />
-  <!-- Paint the wall colour before anything else loads, so the page never flashes white. -->
-  <style>html,body{margin:0;height:100%;background:#0a0f1c;color:#f2ead6}</style>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,500;0,600;1,400;1,500&family=Inter:wght@400;500;600&family=Caveat:wght@500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <!-- Only the characters the cartouche, seal, inks and radio use, so the Japanese font stays tiny. -->
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Serif+JP:wght@500;600&text=%E5%86%A8%E5%B6%BD%E7%84%A1%E9%99%90%E6%99%AF%E7%A5%9E%E5%A5%88%E5%B7%9D%E6%B2%96%E6%B5%AA%E8%A3%8F%E9%9B%BB%E8%84%B3%E6%91%BA%E5%8C%97%E6%96%8E%E8%83%A1%E7%B2%89%E6%B5%85%E8%91%B1%E8%97%8D%E7%B4%BA%E5%A2%A8%E9%BB%84%E5%9C%9F%E9%BC%A0%E6%94%BE%E9%80%81%E5%B1%80%E5%B7%A5%E6%88%BF&display=swap" rel="stylesheet" />
+  <!-- Paint the bench before anything else loads, so the page never flashes white. -->
+  <style>html,body{margin:0;height:100%;background:#140e0b;color:#efe4cc}</style>
   <link rel="stylesheet" href="/src/styles.css" />
 </head>
 <body>
-  <div id="app" data-mode="gallery">
-    <canvas id="wander-canvas" class="wander-canvas" aria-label="An endless printed sea"></canvas>
-    <div class="wander-vignette" aria-hidden="true"></div>
+  <div id="app" data-mode="studio">
+    <canvas id="voyage-canvas" class="voyage-canvas" aria-label="An endless printed sea"></canvas>
 
-    <section class="gallery" aria-label="Gallery">
-      <div class="wall-light" aria-hidden="true"></div>
-      <figure class="frame">
-        <div class="frame-moulding">
-          <div class="frame-liner">
-            <canvas id="gallery-canvas" aria-label="The generated print"></canvas>
-          </div>
-        </div>
-      </figure>
-      <figcaption class="placard">
-        <p class="placard-jp" lang="ja">神奈川沖浪裏</p>
-        <p class="placard-artist">After Katsushika Hokusai <span>1760–1849</span></p>
-        <h2 class="placard-title">The Great Wave off Kanagawa</h2>
-        <p class="placard-no">No. <span id="placard-no"></span></p>
-        <p class="placard-meta">Procedural woodblock print, 2026<br /><span id="stroke-count">Inking the blocks…</span></p>
-        <div class="placard-progress" aria-hidden="true"><span id="gallery-progress"></span></div>
-      </figcaption>
-    </section>
-
-    <header class="brand">
-      <svg class="brand-mark" viewBox="0 0 32 32" aria-hidden="true">
-        <path d="M4 25c3.5-1 5.5-8.5 9.5-12.5s9.5-4 11.5 0-2 7.5-5.2 5.2 0-5.4 2.2-4.2" />
-        <path d="M3 28.5c4-.8 8 .8 12 0s8-.8 13 0" />
-      </svg>
+    <header class="mast">
+      <span class="mast-seal" lang="ja" aria-hidden="true">北斎<br />工房</span>
       <div>
         <h1>Hokusai<em>-Fi</em></h1>
-        <p>an endless great wave · printed block by block · lo-fi beats</p>
+        <p>a print studio &amp; lo-fi radio</p>
       </div>
     </header>
 
-    <div class="hud glass" aria-live="polite">
-      <span class="hud-label">Sea</span>
-      <span id="hud-seed" class="hud-value"></span>
-      <span class="hud-sep" aria-hidden="true"></span>
-      <span id="hud-distance" class="hud-value">0.00</span>
-      <span class="hud-label">ri out</span>
-      <span class="hud-sep" aria-hidden="true"></span>
-      <span id="hud-mood" class="hud-value hud-mood"></span>
-      <span id="hud-painting" class="hud-painting"><i></i>printing ahead</span>
+    <div class="voyage-log" aria-live="polite">
+      <span id="log-distance">0.00</span> ri out · <span id="log-mood"></span> · <span id="log-sea"></span>
+      <i id="log-printing">printing ahead</i>
     </div>
 
-    <nav class="dock glass" aria-label="Controls">
-      <div class="segmented" role="tablist" aria-label="View">
-        <span class="segmented-thumb" aria-hidden="true"></span>
-        <button role="tab" data-mode="gallery" aria-selected="true">Gallery</button>
-        <button role="tab" data-mode="wander" aria-selected="false">Wander</button>
-      </div>
-      <span class="dock-sep" aria-hidden="true"></span>
-      <label class="seed-field">
-        <span>No.</span>
-        <input id="seed-input" spellcheck="false" autocomplete="off" maxlength="32" aria-label="Seed" />
-      </label>
-      <button class="icon-btn" id="btn-new" title="A new sea (N)" aria-label="A new sea">
-        <svg viewBox="0 0 24 24"><rect x="3.5" y="3.5" width="17" height="17" rx="4" /><circle cx="8.5" cy="8.5" r="1.3" class="fill" /><circle cx="15.5" cy="15.5" r="1.3" class="fill" /><circle cx="15.5" cy="8.5" r="1.3" class="fill" /><circle cx="8.5" cy="15.5" r="1.3" class="fill" /><circle cx="12" cy="12" r="1.3" class="fill" /></svg>
-      </button>
-      <span class="dock-sep wander-only" aria-hidden="true"></span>
-      <button class="icon-btn wander-only" id="btn-play" title="Pause (Space)" aria-label="Pause drifting">
-        <svg viewBox="0 0 24 24" class="icon-pause"><path d="M9 6v12M15 6v12" /></svg>
-        <svg viewBox="0 0 24 24" class="icon-play"><path d="M8 5.5v13l10.5-6.5z" class="fill" /></svg>
-      </button>
-      <label class="speed wander-only" title="Drift speed">
-        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12c3-4 6-4 9 0s6 4 9 0" /></svg>
-        <input id="speed" type="range" min="0" max="160" value="45" aria-label="Drift speed" />
-      </label>
-      <span class="dock-sep" aria-hidden="true"></span>
-      <button class="icon-btn" id="btn-anim" title="Bring the print to life (A)" aria-label="Animate the print" aria-pressed="true">
-        <svg viewBox="0 0 24 24"><path d="M12 3.5l1.6 4.3 4.4 1.7-4.4 1.7L12 15.5l-1.6-4.3L6 9.5l4.4-1.7z" /><path d="M18.5 15l.7 1.8 1.8.7-1.8.7-.7 1.8-.7-1.8-1.8-.7 1.8-.7z" class="fill" /></svg>
-      </button>
-      <button class="icon-btn muted" id="btn-sound" title="Play the lo-fi soundtrack (M)" aria-label="Play the soundtrack" aria-pressed="false">
-        <svg viewBox="0 0 24 24"><path d="M4 9.5h3.5L12 5.5v13l-4.5-4H4z" /><path d="M15.5 9a4 4 0 0 1 0 6M18 6.5a7.5 7.5 0 0 1 0 11" class="wave" /><path d="M16 9.5l5 5M21 9.5l-5 5" class="mute" /></svg>
-      </button>
-      <button class="icon-btn" id="btn-share" title="Copy a link to this sea (C)" aria-label="Share this sea">
-        <svg viewBox="0 0 24 24"><path d="M10 14a4.5 4.5 0 0 0 6.4 0l3-3a4.5 4.5 0 0 0-6.4-6.4l-1 1" /><path d="M14 10a4.5 4.5 0 0 0-6.4 0l-3 3a4.5 4.5 0 0 0 6.4 6.4l1-1" /></svg>
-      </button>
-      <button class="icon-btn" id="btn-save" title="Save a postcard (S) · plain image (Shift+S)" aria-label="Save a postcard">
-        <svg viewBox="0 0 24 24"><path d="M12 4v11M7 10.5l5 5 5-5M5 19.5h14" /></svg>
-      </button>
-      <button class="icon-btn" id="btn-full" title="Fullscreen (F)" aria-label="Toggle fullscreen">
-        <svg viewBox="0 0 24 24"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5" /></svg>
-      </button>
-      <button class="icon-btn" id="btn-about" title="About (I)" aria-label="About this project">
-        <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5" /><path d="M12 11v5.5" /><circle cx="12" cy="7.8" r=".9" class="fill" /></svg>
-      </button>
-    </nav>
+    <main class="bench" aria-label="The print on the bench">
+      <figure class="sheet">
+        <div class="sheet-paper">
+          <canvas id="print-canvas" aria-label="The print"></canvas>
+          <!-- The kentō: the carver's registration marks that keep every block on the same sheet. -->
+          <span class="kento kento-hook" aria-hidden="true"></span>
+          <span class="kento kento-bar" aria-hidden="true"></span>
+        </div>
+        <figcaption class="pencil">
+          <span class="pencil-left">No. <b id="edition"></b> <span id="edition-note"></span></span>
+          <span class="pencil-right" id="marks">pulling the blocks…</span>
+        </figcaption>
+        <div class="pull" aria-hidden="true"><span id="pull"></span></div>
+      </figure>
 
-    <div class="about glass" id="about" role="dialog" aria-labelledby="about-title" hidden>
-      <button class="about-close icon-btn" id="about-close" aria-label="Close">
-        <svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18" /></svg>
-      </button>
-      <p class="about-kicker">About this sea</p>
-      <h3 id="about-title">Every line is code.</h3>
+      <aside class="tray" aria-label="The inks of this edition">
+        <p class="tray-title">Inks on the bench</p>
+        <ul id="inks"></ul>
+        <p class="tray-weather"><span>Weather</span><b id="weather"></b></p>
+      </aside>
+    </main>
+
+    <section class="radio" aria-label="Radio and controls">
+      <div class="grille" aria-hidden="true"><span class="vu" id="vu"></span></div>
+
+      <div class="dial">
+        <div class="dial-scale" aria-hidden="true">
+          <span>76</span><span>80</span><span>84</span><span>88</span><span>92</span><span>96</span><span>100</span><span>104</span><span>108</span>
+          <i class="needle" id="needle"></i>
+        </div>
+        <div class="dial-read">
+          <label class="station">
+            <span class="station-fm" id="freq">FM 88.0</span>
+            <input id="seed-input" spellcheck="false" autocomplete="off" maxlength="32" aria-label="Station (the seed of the sea)" />
+          </label>
+          <span class="playing" id="playing">radio off · press play</span>
+        </div>
+      </div>
+
+      <div class="knobs">
+        <button class="knob knob-play" id="btn-sound" title="Play the radio (M)" aria-label="Play the radio" aria-pressed="false">
+          <svg viewBox="0 0 24 24" class="i-play"><path d="M8 5.5v13l10.5-6.5z" /></svg>
+          <svg viewBox="0 0 24 24" class="i-pause"><path d="M8.5 6v12M15.5 6v12" /></svg>
+        </button>
+        <button class="knob" id="btn-new" title="Tune to a new sea (N)" aria-label="Tune to a new sea">
+          <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="7.5" /><path d="M12 12l4.2-3.2" /></svg>
+        </button>
+      </div>
+
+      <div class="switches" role="group" aria-label="View and tools">
+        <button class="switch" id="btn-mode" title="Set sail along the sea (W)" aria-label="Set sail"><svg viewBox="0 0 24 24"><path d="M4 17c2.5 1.6 5 1.6 8 0s5.5-1.6 8 0M12 4v10M12 4l5 8h-5" /></svg><span>Set sail</span></button>
+        <button class="switch" id="btn-play" title="Hold still (Space)" aria-label="Pause drifting"><svg viewBox="0 0 24 24" class="i-pause"><path d="M9 6v12M15 6v12" /></svg><svg viewBox="0 0 24 24" class="i-play"><path d="M8 5.5v13l10.5-6.5z" /></svg></button>
+        <label class="speed" title="Drift speed"><input id="speed" type="range" min="0" max="160" value="45" aria-label="Drift speed" /></label>
+        <button class="switch" id="btn-anim" title="Still the print (A)" aria-label="Animate the print" aria-pressed="true"><svg viewBox="0 0 24 24"><path d="M12 3.5l1.6 4.3 4.4 1.7-4.4 1.7L12 15.5l-1.6-4.3L6 9.5l4.4-1.7z" /></svg></button>
+        <button class="switch" id="btn-share" title="Copy a link to this station (C)" aria-label="Share this sea"><svg viewBox="0 0 24 24"><path d="M10 14a4.5 4.5 0 0 0 6.4 0l3-3a4.5 4.5 0 0 0-6.4-6.4l-1 1" /><path d="M14 10a4.5 4.5 0 0 0-6.4 0l-3 3a4.5 4.5 0 0 0 6.4 6.4l1-1" /></svg></button>
+        <button class="switch" id="btn-save" title="Pull a postcard (S) · plain image (Shift+S)" aria-label="Save a postcard"><svg viewBox="0 0 24 24"><path d="M12 4v11M7 10.5l5 5 5-5M5 19.5h14" /></svg></button>
+        <button class="switch" id="btn-full" title="Fullscreen (F)" aria-label="Toggle fullscreen"><svg viewBox="0 0 24 24"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5" /></svg></button>
+        <button class="switch" id="btn-about" title="About (I)" aria-label="About this studio"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5" /><path d="M12 11v5.5" /><circle cx="12" cy="7.8" r=".9" class="fill" /></svg></button>
+      </div>
+    </section>
+
+    <div class="about" id="about" role="dialog" aria-labelledby="about-title" hidden>
+      <button class="about-close" id="about-close" aria-label="Close"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18" /></svg></button>
+      <p class="about-kicker">The studio</p>
+      <h3 id="about-title">Every block is carved by code.</h3>
       <p>
-        <em>Hokusai-Fi</em> prints Hokusai's <em>Under the Wave off Kanagawa</em> from nothing but code: no
-        photos, no AI, no training data. Like a woodblock print it is built up one block at a time:
-        the graded sky, the sea, each wave's body, the light bands carved along it, the key-block
-        outline, and the foam, whose claws split into curling talons and throw spray across the sky.
+        <em>Hokusai-Fi</em> pulls woodblock prints in the manner of Hokusai's <em>Under the Wave off
+        Kanagawa</em>, with no photographs and no tracing. A handful of curves place the great wave,
+        the swells, the boats and Fuji; carving procedures do the rest: fingers of blue rising into
+        foam, talons that curl over with a dark hook beneath them, strands of lighter blue running
+        through the water, flecks of spray. Tune to <strong>1831</strong> and the composition is
+        Hokusai's own. Every other station is an edition of its own, with its own swell, weather and
+        crew.
       </p>
       <p>
-        <strong>Gallery</strong> hangs the 1831 composition, reinterpreted for every seed with its own
-        weather. <strong>Wander</strong> steps into the print and keeps rowing, past the Kanagawa sea,
-        open swells with fishing boats, a calm bay under a red Fuji, pine-covered headlands and rocky
-        islets, printed just ahead of you. Turn on <strong>life</strong> and the spray flies, the birds
-        cross and the snow falls; turn on the <strong>sound</strong> for a lo-fi beat with koto and
-        shakuhachi that changes with the weather.
+        The radio plays a lo-fi beat composed live from the same seed: koto, shakuhachi, warm keys,
+        a temple bell and the sea. <strong>Set sail</strong> and the print opens out into an endless
+        sea, printed just ahead of you, while the music turns with the weather.
       </p>
-      <h4>Shortcuts</h4>
+      <h4>At the bench</h4>
       <dl>
-        <dt><kbd>G</kbd> <kbd>W</kbd></dt><dd>Gallery / Wander</dd>
-        <dt><kbd>N</kbd></dt><dd>A new sea</dd>
-        <dt><kbd>A</kbd></dt><dd>Bring the print to life</dd>
-        <dt><kbd>Space</kbd></dt><dd>Pause or resume drifting</dd>
+        <dt><kbd>M</kbd></dt><dd>Play or stop the radio</dd>
+        <dt><kbd>N</kbd></dt><dd>Tune to a new sea</dd>
+        <dt><kbd>W</kbd> <kbd>G</kbd></dt><dd>Set sail / back to the bench</dd>
         <dt><kbd>←</kbd> <kbd>→</kbd></dt><dd>Row along the sea (or drag, or scroll)</dd>
-        <dt><kbd>M</kbd></dt><dd>Play or mute the lo-fi soundtrack</dd>
-        <dt><kbd>S</kbd> <kbd>C</kbd></dt><dd>Save a postcard (<kbd>Shift</kbd>+<kbd>S</kbd> for the plain image) / copy a link to this sea</dd>
+        <dt><kbd>Space</kbd></dt><dd>Hold still or drift</dd>
+        <dt><kbd>A</kbd></dt><dd>Bring the print to life</dd>
+        <dt><kbd>S</kbd> <kbd>C</kbd></dt><dd>Pull a postcard (<kbd>Shift</kbd>+<kbd>S</kbd>: plain image) / copy a link</dd>
         <dt><kbd>F</kbd></dt><dd>Fullscreen</dd>
       </dl>
       <p class="about-credits">
         After Katsushika Hokusai, <em>Under the Wave off Kanagawa</em>, from <em>Thirty-six Views of Mount Fuji</em>, c. 1831.
-        A sibling of <a href="https://github.com/EvanDongChen/GoghWithTheFlow" target="_blank" rel="noopener">Gogh with the Flow</a>.
         Made by <a href="https://github.com/EvanDongChen/Hokusai-Fi" target="_blank" rel="noopener">EvanDongChen</a>.
       </p>
     </div>
 
-    <div class="toast glass" id="toast" role="status"></div>
+    <div class="toast" id="toast" role="status"></div>
 
     <div class="intro" id="intro" aria-hidden="true">
-      <p class="intro-jp" lang="ja">冨嶽無限景</p>
-      <p class="intro-kicker">a procedural homage</p>
+      <span class="intro-seal" lang="ja">北斎<br />工房</span>
       <h1>Hokusai<em>-Fi</em></h1>
-      <p class="intro-sub">Every sea is new. Every line is code.</p>
+      <p class="intro-sub">tuning in…</p>
     </div>
   </div>
   <script type="module" src="/src/main.ts"></script>
