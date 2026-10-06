@@ -20,13 +20,22 @@ export type Kind = 'great' | 'dome' | 'peak' | 'hook' | 'trough';
 
 export interface Wave {
   kind: Kind;
+  /** Its own seed, for everything painted on it. */
+  id: number;
+  /** How tall it stands, crest above foot. */
+  h: number;
   /** Depth: farther waves (smaller z) are drawn first and hidden by nearer ones. */
   z: number;
   /** The stroke, left to right, running off the sheet at both ends. */
   line: Pt[];
 }
 
-export interface Sea { seed: string; W: number; H: number; waves: Wave[]; }
+export interface Sea {
+  seed: string; W: number; H: number;
+  /** Which way the waves break: 1 to the right, -1 to the left. */
+  dir: 1 | -1;
+  waves: Wave[];
+}
 
 export const W = 1480, H = 1000;
 
@@ -101,7 +110,7 @@ export function generate(seed: string): Sea {
   // The great wave (or a dome), up and to one side.
   const gh = H * r.range(0.5, 0.7), gw = gh * r.range(0.7, 0.95), gx = W * r.range(0.15, 0.32);
   const breaking = r.chance(0.75);
-  waves.push({ kind: breaking ? 'great' : 'dome', z: r.range(0.3, 0.45), line: great(r, gx, H * r.range(0.04, 0.16), gh, gw, breaking) });
+  waves.push({ kind: breaking ? 'great' : 'dome', id: r.int(0, 1e9), h: gh, z: r.range(0.3, 0.45), line: great(r, gx, H * r.range(0.04, 0.16), gh, gw, breaking) });
 
   // Two or three peaks: big ones farther back, small ones in front, spread across the rest.
   const n = r.int(2, 3);
@@ -110,9 +119,9 @@ export function generate(seed: string): Sea {
     const x = i === 0 ? gx + gw * r.range(-0.3, 0.2) : W * r.range(0.5, 0.92);
     const top = H * (0.25 + z * 0.55) - h * 0.3;
     const hook = r.chance(0.35);
-    waves.push({ kind: hook ? 'hook' : 'peak', z, line: peak(r, x, top, h, w, hook) });
+    waves.push({ kind: hook ? 'hook' : 'peak', id: r.int(0, 1e9), h, z, line: peak(r, x, top, h, w, hook) });
   }
-  if (r.chance(0.45)) waves.push({ kind: 'trough', z: 1, line: trough(r) });
+  if (r.chance(0.45)) waves.push({ kind: 'trough', id: r.int(0, 1e9), h: H * 0.3, z: 1, line: trough(r) });
 
   waves.sort((a, b) => a.z - b.z);
   for (const wv of waves) {
@@ -120,29 +129,5 @@ export function generate(seed: string): Sea {
     if (dir < 0) wv.line = wv.line.map(([x, y]): Pt => [W - x, y]).reverse();
     wv.line = spline(wv.line, 4);
   }
-  return { seed, W, H, waves };
-}
-
-/** Draw a sea: each stroke back to front, each one's water hiding the strokes behind it. */
-export function draw(ctx: CanvasRenderingContext2D, sea: Sea, o: { paper?: string; ink?: string; layers?: boolean } = {}) {
-  const paper = o.paper ?? '#f6e7b0', ink = o.ink ?? '#141414';
-  ctx.fillStyle = paper;
-  ctx.fillRect(0, 0, sea.W, sea.H);
-  ctx.lineCap = 'round';
-  ctx.lineJoin = 'round';
-  sea.waves.forEach((wv, j) => {
-    ctx.fillStyle = o.layers ? `hsl(${200 + j * 25}, 45%, ${88 - j * 5}%)` : paper;
-    ctx.beginPath();
-    ctx.moveTo(wv.line[0][0], sea.H + OFF);
-    for (const p of wv.line) ctx.lineTo(p[0], p[1]);
-    ctx.lineTo(wv.line[wv.line.length - 1][0], sea.H + OFF);
-    ctx.closePath();
-    ctx.fill();
-    ctx.strokeStyle = ink;
-    ctx.lineWidth = 4;
-    ctx.beginPath();
-    ctx.moveTo(wv.line[0][0], wv.line[0][1]);
-    for (const p of wv.line) ctx.lineTo(p[0], p[1]);
-    ctx.stroke();
-  });
+  return { seed, W, H, dir, waves };
 }

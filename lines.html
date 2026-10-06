@@ -5,64 +5,110 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Wave lines</title>
   <style>
-    body { margin: 0; background: #2a2420; color: #eee; font: 14px system-ui, sans-serif; }
-    header { display: flex; gap: 8px; align-items: center; padding: 10px 14px; }
-    input { font: inherit; padding: 4px 8px; width: 14em; }
-    button, label { font: inherit; }
+    body { margin: 0; background: #2a2420; color: #eee; font: 14px system-ui, sans-serif; display: grid; grid-template-columns: 1fr 220px; min-height: 100vh; }
+    header { grid-column: 1 / -1; display: flex; gap: 8px; align-items: center; padding: 10px 14px; }
+    input[type=text] { font: inherit; padding: 4px 8px; width: 14em; }
+    button, select { font: inherit; }
     main { padding: 0 14px 14px; }
-    canvas { width: 100%; height: auto; display: block; background: #f3ebd6; }
-    .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+    canvas { width: 100%; height: auto; display: block; }
+    .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; align-content: start; }
     .grid figure { margin: 0; }
     .grid figcaption { font-size: 12px; opacity: 0.7; padding: 2px 0; }
+    aside { padding: 0 14px 14px 0; }
+    aside fieldset { border: 1px solid #554a40; margin: 0 0 10px; padding: 6px 10px; }
+    aside legend { opacity: 0.8; font-size: 12px; text-transform: uppercase; letter-spacing: 0.06em; }
+    aside label { display: block; padding: 2px 0; }
   </style>
 </head>
 <body>
   <header>
-    <input id="seed" aria-label="Seed" />
+    <input id="seed" type="text" aria-label="Seed" />
     <button id="new">New seed</button>
     <button id="grid">Grid of 6</button>
-    <label><input type="checkbox" id="layers" /> Tint layers</label>
   </header>
   <main id="main"></main>
+  <aside>
+    <fieldset id="layers"><legend>Layers</legend></fieldset>
+    <fieldset><legend>Waves</legend>
+      <select id="only" aria-label="Wave"></select>
+      <label><input type="checkbox" id="tint" /> Tint each wave</label>
+    </fieldset>
+    <fieldset><legend>Presets</legend>
+      <button id="all">All</button> <button id="none">None</button> <button id="lines">Lines only</button>
+    </fieldset>
+  </aside>
   <script type="module">
-    import { generate, draw, W, H } from './src/lines/waves';
+    import { generate, W, H } from './src/lines/waves';
+    import { paint, LAYERS, isBig } from './src/lines/paint';
     const q = new URLSearchParams(location.search);
     const $ = (id) => document.getElementById(id);
     const words = ['salt', 'crane', 'tide', 'oar', 'gull', 'reef', 'foam', 'pine', 'moon', 'spray'];
     const rand = () => `${words[Math.floor(Math.random() * words.length)]}-${Math.floor(Math.random() * 999)}`;
-    const sheet = (seed, scale) => {
+
+    // Layer toggles, remembered in the URL (?hide=stripes,drips).
+    const hidden = new Set((q.get('hide') ?? '').split(',').filter(Boolean));
+    for (const name of LAYERS) {
+      const l = document.createElement('label'), c = document.createElement('input');
+      c.type = 'checkbox'; c.checked = !hidden.has(name); c.dataset.layer = name;
+      c.onchange = () => { c.checked ? hidden.delete(name) : hidden.add(name); render(); };
+      l.append(c, ` ${name}`); $('layers').append(l);
+    }
+    const setLayers = (on) => { hidden.clear(); for (const n of LAYERS) if (!on(n)) hidden.add(n); for (const c of $('layers').querySelectorAll('input')) c.checked = !hidden.has(c.dataset.layer); render(); };
+    $('all').onclick = () => setLayers(() => true);
+    $('none').onclick = () => setLayers(() => false);
+    $('lines').onclick = () => setLayers((n) => n === 'outline');
+
+    const sheet = (seed, scale, only) => {
       const c = document.createElement('canvas');
       c.width = Math.round(W * scale); c.height = Math.round(H * scale);
       const ctx = c.getContext('2d');
       ctx.scale(scale, scale);
-      draw(ctx, generate(seed), { layers: $('layers').checked });
+      paint(ctx, generate(seed), { show: new Set(LAYERS.filter((n) => !hidden.has(n))), only, tint: $('tint').checked });
       return c;
     };
+
+    function fillWaves(seed) {
+      const sel = $('only'), keep = q.get('only') ?? '';
+      sel.innerHTML = '<option value="">All waves</option>';
+      generate(seed).waves.forEach((w, i) => {
+        const o = document.createElement('option');
+        o.value = String(i); o.textContent = `${i}: ${w.kind} (${isBig({ H }, w) ? 'big' : 'small'}, h ${Math.round(w.h)})`;
+        sel.append(o);
+      });
+      sel.value = keep;
+    }
+
     function render() {
-      const main = $('main'), seed = $('seed').value;
+      const main = $('main'), seed = $('seed').value, only = $('only').value === '' ? null : +$('only').value;
       main.innerHTML = '';
       if (q.get('grid') === '1') {
         main.className = 'grid';
         for (let i = 0; i < 6; i++) {
           const s = i === 0 ? seed : `${seed}-${i}`, f = document.createElement('figure');
-          f.append(sheet(s, 0.6));
+          f.append(sheet(s, 0.5, null));
           const cap = document.createElement('figcaption'); cap.textContent = s; f.append(cap);
           main.append(f);
         }
       } else {
         main.className = '';
-        main.append(sheet(seed, 1.5));
+        main.append(sheet(seed, 1.2, only));
       }
       q.set('seed', seed);
+      hidden.size ? q.set('hide', [...hidden].join(',')) : q.delete('hide');
+      only === null ? q.delete('only') : q.set('only', String(only));
+      $('tint').checked ? q.set('tint', '1') : q.delete('tint');
       history.replaceState(null, '', `?${q}`);
       document.title = 'done';
     }
+
     $('seed').value = q.get('seed') ?? rand();
-    $('seed').addEventListener('change', render);
-    $('new').onclick = () => { $('seed').value = rand(); render(); };
+    $('tint').checked = q.get('tint') === '1';
+    fillWaves($('seed').value);
+    $('seed').addEventListener('change', () => { q.delete('only'); fillWaves($('seed').value); render(); });
+    $('new').onclick = () => { $('seed').value = rand(); q.delete('only'); fillWaves($('seed').value); render(); };
     $('grid').onclick = () => { q.set('grid', q.get('grid') === '1' ? '0' : '1'); render(); };
-    $('layers').checked = q.get('layers') === '1';
-    $('layers').onchange = () => { q.set('layers', $('layers').checked ? '1' : '0'); render(); };
+    $('only').onchange = render;
+    $('tint').onchange = render;
     render();
   </script>
 </body>
