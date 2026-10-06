@@ -1,198 +1,154 @@
-// Waves as lines only. A seed lays a sea out as a few layers of water, from the horizon to the
-// foot of the sheet, each one a single line running across: a chain of crests, each crest one of
-// Hokusai's shapes.
+// Waves as lines only, composed the way the print is. Hokusai's sea is only a few masses of water
+// in three layers:
 //
-//  - round: a smooth swell, its top rounded;
-//  - pointy: hollow sides rising to a peak, like the small wave in the print that echoes Fuji;
-//  - curl: a crest leaning forward whose lip throws out and rolls over, the face falling away
-//    beneath it into the hollow.
+//  - far: the horizon, and Fuji small beneath it;
+//  - middle: the great wave, its long back rising to a broad round dome that carries on forward
+//    as a heavy hood, curling down at its front over the hollow beneath; sometimes a swell behind
+//    it, cut off by the edge of the sheet;
+//  - near: the small pointed wave that echoes Fuji, standing in front of the great wave's foot,
+//    and the long swell rising out of the sheet at its far edge.
 //
-// Nearer layers are bigger and drawn later, and each fills the paper below its line, so it hides
-// the farther lines behind it. Nothing else: no colour, no foam, just the shapes of the water.
+// Each mass is a smooth line through a handful of control points, taken from the shapes of the
+// print, which the seed stretches and bends: how far the hood reaches, how round the dome is, how
+// far the tip curls under, how big each wave is, where it stands and which way it breaks.
+// Nearer layers fill the paper below their line, so they hide whatever lies behind them.
 
+import { spline } from '../core/curve';
 import { hashString, Rng } from '../core/rng';
 
 export type Pt = [number, number];
-export type Kind = 'round' | 'pointy' | 'curl';
+export type Kind = 'great' | 'pointed' | 'swell';
 
-/** One crest: where it stands between its two troughs, how high, which shape, how far it leans. */
-export interface Crest { x0: number; x1: number; h: number; kind: Kind; lean: number; sharp: number; }
-
-export interface Layer {
-  /** Depth: 0 at the horizon, 1 in front. */
-  z: number;
-  /** Rest level of the water. */
-  base: number;
-  crests: Crest[];
-  /** The line: the surface, from left to right. Curling lips are separate strokes. */
-  surface: Pt[];
-  lips: Pt[][];
-  /** Line width. */
+export interface Wave {
+  kind: Kind;
+  /** The outline from its back foot to its front foot, in sheet coordinates. */
+  line: Pt[];
   w: number;
 }
 
-export interface Sea { seed: string; W: number; H: number; horizon: number; layers: Layer[]; }
+export interface Layer { name: 'far' | 'middle' | 'near'; waves: Wave[]; }
+
+export interface Sea { seed: string; W: number; H: number; horizon: number; fuji: Pt[] | null; layers: Layer[]; }
 
 export const W = 1480, H = 1000;
 
-export function generate(seed: string): Sea {
-  const r = new Rng(hashString(seed));
-  const horizon = H * r.range(0.62, 0.74), n = r.int(5, 8), dir = r.chance(0.75) ? 1 : -1;
-  // One great wave in one of the nearer layers.
-  const heroLayer = n - 1 - r.int(0, 2);
-  const layers: Layer[] = [];
-  for (let j = 0; j < n; j++) {
-    const z = (j + 1) / n, d = Math.pow(z, 1.6);
-    const base = horizon + (H * 1.04 - horizon) * d, s = 0.08 + 0.92 * Math.pow(z, 1.4);
-    const crests = crestsFor(r, s, j === heroLayer, dir);
-    const { surface, lips } = shape(crests, base, dir);
-    layers.push({ z, base, crests, surface, lips, w: 0.8 + 2.4 * s });
-  }
-  return { seed, W, H, horizon, layers };
-}
-
-/** The crests of one layer, trough to trough across the sheet and a little beyond. */
-function crestsFor(r: Rng, s: number, hero: boolean, dir: 1 | -1): Crest[] {
-  const out: Crest[] = [];
-  const heroAt = hero ? r.range(0.25, 0.65) * W : -1;
-  let x = -r.range(0.1, 0.6) * 500 * s - 40;
-  while (x < W + 40) {
-    let w = r.range(160, 520) * s + 30, h = w * r.range(0.18, 0.34);
-    let kind: Kind = r.pick(['round', 'round', 'pointy', 'pointy', 'curl'] as const);
-    // Far off, the sea is small rounded and pointed crests; curls need room to show.
-    if (s < 0.25 && kind === 'curl') kind = 'pointy';
-    if (hero && x < heroAt && x + w > heroAt) {
-      w = r.range(700, 1000);
-      h = r.range(0.42, 0.6) * H;
-      kind = 'curl';
-    }
-    out.push({ x0: x, x1: x + w, h, kind, lean: kind === 'curl' ? r.range(0.08, 0.2) : kind === 'pointy' ? r.range(0, 0.25) : r.range(0, 0.15), sharp: r.range(0, 1) });
-    x += w;
-  }
-  // Breaking left: the same sea mirrored, its crests still in order from left to right.
-  if (dir < 0) {
-    for (const c of out) [c.x0, c.x1] = [W - c.x1, W - c.x0];
-    out.reverse();
-  }
-  return out;
-}
-
-/** Height of a crest as a share of its own, at u from its back trough (0) to its front one (1). */
-function profile(c: Crest, u: number): number {
-  if (c.kind === 'round') {
-    // A rounded top, flanks easing into the troughs.
-    return Math.pow(Math.sin(Math.PI * u), 1.2 + c.sharp * 0.8);
-  }
-  if (c.kind === 'curl') {
-    // A long concave back sweeping up, rounding over at the top into the lip; a steep front.
-    const peak = 0.6 + c.sharp * 0.08;
-    if (u < peak) {
-      const v = u / peak;
-      return Math.pow(v, 1.8 + c.sharp);
-    }
-    return Math.pow((1 - u) / (1 - peak), 0.9);
-  }
-  // Pointy crests rise on hollow sides to a peak, the front a little steeper than the back.
-  const peak = 0.5 + c.sharp * 0.1, k = 1.6 + c.sharp * 1.2;
-  const v = u < peak ? u / peak : (1 - u) / (1 - peak);
-  return Math.pow(v, k);
-}
-
-/** The surface of a layer, and the lips of its curling crests. */
-function shape(crests: Crest[], base: number, dir: 1 | -1) {
-  const surface: Pt[] = [], lips: Pt[][] = [];
-  for (const c of crests) {
-    const span = c.x1 - c.x0, n = Math.max(12, Math.round(span / 4));
-    // Walk the crest from its back trough to its front one (in the breaking direction).
-    const pts: Pt[] = [];
-    for (let i = 0; i <= n; i++) {
-      const u = i / n, f = profile(c, u), y = base - c.h * f;
-      // Leaning forward: the higher, the further.
-      const x = (dir > 0 ? c.x0 + span * u : c.x1 - span * u) + dir * c.lean * c.h * f * f;
-      pts.push([x, y]);
-    }
-    if (c.kind === 'curl') {
-      // The lip leaves the crest and rolls over; the face below it is drawn back into the hollow,
-      // most at half height, so it leaves the crest smoothly and meets the trough again.
-      const top = pts.reduce((b, p, i) => (p[1] < pts[b][1] ? i : b), 0), R = c.h * 0.32;
-      for (let i = top + 1; i < pts.length; i++) {
-        const f = (base - pts[i][1]) / c.h;
-        pts[i] = [pts[i][0] - dir * R * 0.85 * Math.pow(Math.sin(Math.PI * Math.min(1, f)), 0.8), pts[i][1]];
-      }
-      lips.push(lip(pts[top], R, dir));
-    }
-    if (dir < 0) pts.reverse();
-    surface.push(...(surface.length ? pts.slice(1) : pts));
-  }
-  return { surface, lips };
-}
+/** A wave's control points in its own frame: u forward (the way it breaks), v up, its height 1. */
+type Shape = Pt[];
 
 /**
- * A curling lip from the crest, as a band: its outer edge reaching forward and turning ever more
- * tightly to the tip, its inner edge returning from the tip to just under the crest.
+ * The great wave. Its back rises from far behind to a round dome; the top carries on forward as
+ * a thick hood whose front bulges and curls down and back under itself; beneath the hood, the
+ * hollow, and the face falling from it to the front foot.
  */
-function lip(from: Pt, R: number, dir: 1 | -1): Pt[] {
-  const n = 40, L = R * 2.6, turn = 2.8, T = R * 0.55, spine: Pt[] = [from];
-  let x = from[0], y = from[1], a = 0.25;
-  for (let i = 1; i < n; i++) {
-    const s0 = (i - 1) / (n - 1), s1 = i / (n - 1), a1 = a - turn * (s1 * s1 - s0 * s0);
-    x += dir * Math.cos((a + a1) / 2) * (L / (n - 1));
-    y -= Math.sin((a + a1) / 2) * (L / (n - 1));
-    a = a1;
-    spine.push([x, y]);
-  }
-  // Outer edge is the spine; the inner edge lies inside the turn, the lip thinning to its tip.
-  const inner: Pt[] = [];
-  for (let i = 0; i < n; i++) {
-    const p = spine[Math.max(0, i - 1)], q = spine[Math.min(n - 1, i + 1)], tx = q[0] - p[0], ty = q[1] - p[1], l = Math.hypot(tx, ty) || 1;
-    // Inside the turn is to the right of travel for a wave breaking right, to the left otherwise.
-    const nx = (-ty / l) * dir, ny = (tx / l) * dir, th = T * Math.pow(1 - i / (n - 1), 0.8);
-    inner.push([spine[i][0] + nx * th, spine[i][1] + ny * th]);
-  }
-  return spine.concat(inner.reverse());
+function great(r: Rng): Shape {
+  const B = r.range(1.3, 1.8), dome = r.range(0.85, 1.2);
+  // Taken from the print, in units of the wave's height: the hood reaches about 0.8 forward of the
+  // crest, its tip hangs at about 0.45, the hollow beneath arches to about 0.66, and the face
+  // falls about 0.31 forward of the crest.
+  const R = r.range(0.7, 0.95), T = r.range(0.36, 0.46), A = r.range(0.54, 0.64), F = r.range(0.26, 0.36), curl = r.range(0, 0.06), k = R / 0.8;
+  return [
+    [-B, 0], [-B * 0.62, 0.28], [-B * 0.3, 0.66], [-0.14 * dome, 0.94],
+    // The dome, and the hood running on from it.
+    [0.05 * dome, 1], [0.24 * k, 0.97], [0.48 * k, 0.89], [0.7 * k, 0.78], [R * 0.96, 0.66], [R, 0.56],
+    // Its front hanging down to the tip, which turns in a little.
+    [R * 0.97, T + 0.05], [R * 0.9 - curl, T + curl * 0.4],
+    // The hollow: the hood's underside arching back from the tip...
+    [R * 0.84, T + 0.08], [R * 0.68, (T + A) / 2 + 0.03], [R * 0.52, A - 0.02], [F + 0.11, A], [F + 0.02, A - 0.05],
+    // ...and the face falling from it to the front foot.
+    [F, 0.5], [F + 0.03, 0.32], [F + 0.13, 0.16], [F + 0.34, 0],
+  ];
 }
 
-/** Draw a sea: each layer, back to front, hiding what lies behind it. */
+/** The small pointed wave that echoes Fuji: hollow flanks rising to a peak, leaning a little. */
+function pointed(r: Rng): Shape {
+  const w = r.range(0.8, 1.25), lean = r.range(-0.04, 0.12), sharp = r.range(0.08, 0.16);
+  return [
+    [-w * 1.7, 0], [-w * 0.85, 0.16], [-w * 0.38, 0.48], [-w * sharp, 0.84],
+    [lean, 1], [lean, 1],
+    [w * sharp + lean * 0.5, 0.8], [w * 0.45, 0.44], [w * 0.95, 0.14], [w * 1.8, 0],
+  ];
+}
+
+/** A long swell: a gentle back rising to a round crest, falling away in front. */
+function swell(r: Rng): Shape {
+  const L = r.range(1.6, 2.4), round = r.range(0.2, 0.45);
+  return [
+    [-L, 0], [-L * 0.55, 0.16], [-L * 0.22, 0.56], [-round * 0.5, 0.94],
+    [round * 0.5, 1], [round + 0.25, 0.88], [round + 0.6, 0.5], [round + 1.1, 0.12], [round + 1.6, 0],
+  ];
+}
+
+/** Set a shape on the sheet: its crest (u = 0) at x, its foot at y, `h` tall, breaking toward dir. */
+function place(shape: Shape, x: number, foot: number, h: number, stretch: number, dir: 1 | -1): Pt[] {
+  const pts = shape.map(([u, v]): Pt => [x + dir * u * h * stretch, foot - v * h]);
+  // Lines run left to right on the sheet.
+  return spline(dir > 0 ? pts : pts.reverse(), 4);
+}
+
+export function generate(seed: string): Sea {
+  const r = new Rng(hashString(seed));
+  const dir: 1 | -1 = r.chance(0.75) ? 1 : -1;
+  /** x measured from the sheet's edge the waves break away from. */
+  const X = (x: number) => (dir > 0 ? x : W - x);
+  const horizon = H * r.range(0.62, 0.7);
+  const middle: Wave[] = [], near: Wave[] = [];
+
+  // The great wave.
+  const gx = W * r.range(0.24, 0.42), gh = H * r.range(0.7, 0.86), gFoot = H * r.range(0.95, 1.03), gs = r.range(0.85, 1.1);
+  // Sometimes a swell behind it, rising off the sheet's back edge.
+  if (r.chance(0.5)) middle.push({ kind: 'swell', line: place(swell(r), X(-W * r.range(0.02, 0.12)), gFoot, H * r.range(0.35, 0.5), r.range(0.7, 1), dir), w: 2 });
+  middle.push({ kind: 'great', line: place(great(r), X(gx), gFoot, gh, gs, dir), w: 2.6 });
+
+  // In front: the pointed wave before the great wave's foot, and the long swell off the far edge.
+  const fg = r.random();
+  if (fg < 0.8) {
+    const px = gx + gh * gs * r.range(0.05, 0.35);
+    near.push({ kind: 'pointed', line: place(pointed(r), X(px), H * r.range(1.02, 1.08), H * r.range(0.36, 0.5), r.range(0.8, 1.1), dir), w: 2.2 });
+  }
+  if (fg > 0.3) {
+    near.push({ kind: 'swell', line: place(swell(r), X(W * r.range(1.0, 1.15)), H * r.range(1.02, 1.1), H * r.range(0.45, 0.62), r.range(0.8, 1.1), dir), w: 2.2 });
+  }
+
+  // Fuji, small and far, under the hollow of the great wave.
+  let fuji: Pt[] | null = null;
+  if (r.chance(0.85)) {
+    const fx = X(gx + gh * gs * r.range(0.55, 0.95)), fw = H * r.range(0.06, 0.1), fh = fw * r.range(0.45, 0.6);
+    fuji = [[fx - fw, horizon], [fx - fw * 0.12, horizon - fh], [fx + fw * 0.12, horizon - fh], [fx + fw, horizon]];
+  }
+
+  return { seed, W, H, horizon, fuji, layers: [{ name: 'far', waves: [] }, { name: 'middle', waves: middle }, { name: 'near', waves: near }] };
+}
+
+/** Draw a sea: the far layer, then each nearer one, hiding what lies behind it. */
 export function draw(ctx: CanvasRenderingContext2D, sea: Sea, o: { paper?: string; ink?: string; layers?: boolean } = {}) {
   const paper = o.paper ?? '#f3ebd6', ink = o.ink ?? '#1f3556';
+  const fill = ['#e6edf0', '#d9e4ec', '#c9d8e6'];
   ctx.fillStyle = paper;
   ctx.fillRect(0, 0, sea.W, sea.H);
-  ctx.strokeStyle = ink;
-  ctx.lineWidth = 1;
-  ctx.beginPath();
-  ctx.moveTo(0, sea.horizon);
-  ctx.lineTo(sea.W, sea.horizon);
-  ctx.stroke();
   ctx.lineCap = 'round';
   ctx.lineJoin = 'round';
+  ctx.strokeStyle = ink;
+  ctx.lineWidth = 1.2;
+  stroke(ctx, [[0, sea.horizon], [sea.W, sea.horizon]]);
+  if (sea.fuji) stroke(ctx, sea.fuji);
   sea.layers.forEach((l, j) => {
-    // The paper of this layer's water covers the lines of the layers behind it.
-    ctx.fillStyle = o.layers ? `hsl(${210 + j * 12}, 40%, ${92 - j * 4}%)` : paper;
-    ctx.beginPath();
-    ctx.moveTo(l.surface[0][0], sea.H + 10);
-    for (const p of l.surface) ctx.lineTo(p[0], p[1]);
-    ctx.lineTo(l.surface[l.surface.length - 1][0], sea.H + 10);
-    ctx.closePath();
-    ctx.fill();
-    ctx.strokeStyle = ink;
-    ctx.lineWidth = l.w;
-    stroke(ctx, l.surface);
-    for (const lp of l.lips) {
-      ctx.fillStyle = o.layers ? `hsl(${210 + j * 12}, 40%, ${92 - j * 4}%)` : paper;
+    for (const wv of l.waves) {
+      ctx.fillStyle = o.layers ? fill[j] : paper;
       ctx.beginPath();
-      ctx.moveTo(lp[0][0], lp[0][1]);
-      for (const p of lp) ctx.lineTo(p[0], p[1]);
+      ctx.moveTo(wv.line[0][0], sea.H + 20);
+      for (const p of wv.line) ctx.lineTo(p[0], p[1]);
+      ctx.lineTo(wv.line[wv.line.length - 1][0], sea.H + 20);
       ctx.closePath();
       ctx.fill();
-      stroke(ctx, lp, true);
+      ctx.lineWidth = wv.w;
+      stroke(ctx, wv.line);
     }
   });
 }
 
-function stroke(ctx: CanvasRenderingContext2D, pts: Pt[], closed = false) {
+function stroke(ctx: CanvasRenderingContext2D, pts: Pt[]) {
   ctx.beginPath();
   ctx.moveTo(pts[0][0], pts[0][1]);
   for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i][0], pts[i][1]);
-  if (closed) ctx.closePath();
   ctx.stroke();
 }
