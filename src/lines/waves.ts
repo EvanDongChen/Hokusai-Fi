@@ -75,26 +75,32 @@ function great(r: Rng, x: number, top: number, h: number, w: number, breaking: b
   ];
 }
 
-/** A peak: hollow flanks rising to a point at (x, top), `h` tall; with `hook`, its tip turns over. */
+/**
+ * A peak: hollow flanks rising to a sharp point at (x, top), `h` tall, as the print's small waves
+ * are drawn. Each flank is a power curve, so it is concave and steepens all the way to the point,
+ * which is a true corner rather than a rounded top. The front flank is shorter and steeper; with
+ * `hook`, the point leans forward over it.
+ */
 function peak(r: Rng, x: number, top: number, h: number, w: number, hook: boolean): Pt[] {
-  const b = top + h, lean = r.range(-0.04, 0.08) * w;
-  const pts: Pt[] = [
-    // The flanks keep falling away as they run off the sheet, rather than levelling out.
-    ...runOff([x - w * 1.6, b + h * 0.05], [-OFF, b + (H + OFF - b) * r.range(0.3, 0.8)]).reverse(),
-    [x - w * 1.6, b + h * 0.05],
-    [x - w * 0.8, b - h * 0.2],
-    [x - w * 0.32, b - h * 0.55],
-    [x - w * 0.08 + lean, b - h * 0.9],
-    [x + lean, top], [x + lean, top],
-  ];
-  if (hook) {
-    // The tip turns forward and down, and the front drops sheer beneath it before flaring out.
-    pts.push([x + lean + w * 0.06, top + h * 0.06], [x + lean + w * 0.02, top + h * 0.2], [x + lean + w * 0.04, top + h * 0.45]);
-  } else {
-    pts.push([x + lean + w * 0.08, top + h * 0.12], [x + lean + w * 0.3, top + h * 0.48]);
+  const b = top + h, wb = w * r.range(1.3, 1.8), wf = w * r.range(0.8, 1.15);
+  const pb = r.range(1.9, 2.5), pf = r.range(1.7, 2.3), lean = w * (hook ? r.range(0.12, 0.2) : r.range(0, 0.08));
+  const n = 24, pts: Pt[] = [];
+  // Up the back flank to the point, then down the front.
+  for (let k = 0; k <= n; k++) {
+    // t: distance from the point, as a share of the flank. Height (1 - t)^p is concave.
+    const t = 1 - k / n, v = Math.pow(1 - t, pb);
+    pts.push([x - wb * t + lean * Math.pow(1 - t, 6), b - h * v]);
   }
-  pts.push([x + w * 0.8, b - h * 0.12], [x + w * 1.7, b + h * 0.05], ...runOff([x + w * 1.7, b + h * 0.05], [W + OFF, b + (H + OFF - b) * r.range(0.2, 0.7)]));
-  return pts;
+  for (let k = 1; k <= n; k++) {
+    const t = k / n, v = Math.pow(1 - t, pf);
+    pts.push([x + wf * t + lean * Math.pow(1 - t, 6), b - h * v]);
+  }
+  // The flanks keep falling away as they run off the sheet, rather than levelling out.
+  return [
+    ...runOff([x - wb, b], [-OFF, b + (H + OFF - b) * r.range(0.3, 0.8)]).reverse(),
+    ...pts,
+    ...runOff([x + wf, b], [W + OFF, b + (H + OFF - b) * r.range(0.2, 0.7)]),
+  ];
 }
 
 /** The nearest water: a long trough sagging across the foot of the sheet. */
@@ -127,7 +133,8 @@ export function generate(seed: string): Sea {
   for (const wv of waves) {
     // Breaking left: the whole sea mirrored.
     if (dir < 0) wv.line = wv.line.map(([x, y]): Pt => [W - x, y]).reverse();
-    wv.line = spline(wv.line, 4);
+    // Peaks are already finely drawn, and keep their sharp points; the rest are smoothed.
+    if (wv.kind !== 'peak' && wv.kind !== 'hook') wv.line = spline(wv.line, 4);
   }
   return { seed, W, H, dir, waves };
 }
