@@ -12,10 +12,8 @@
 // the boats): how many great waves rise and where, how big, which way they break, where Fuji
 // stands and how near, which boats are out, all pushed about by a seeded swell.
 
-import { Noise } from '../core/noise';
 import type { Pt } from '../core/print';
-import { hash, Rng } from '../core/rng';
-import { FRAME_W, H, type World } from './world';
+import { FRAME_W, type World } from './world';
 
 export type ZoneInk = 'deep' | 'blue' | 'aqua' | 'paper';
 
@@ -291,226 +289,17 @@ export const KANAGAWA: Composition = {
 
 const cache = new WeakMap<World, Composition>();
 
-/** This seed's composition: Hokusai's own for edition 1831, otherwise a new painting composed from its parts. */
+/**
+ * This seed's composition. Edition 1831 is Hokusai's own; every other edition is a window onto
+ * the generated sea (src/world/field.ts), and keeps only the print's title cartouche.
+ */
 export function composition(world: World): Composition {
   let c = cache.get(world);
   if (c) return c;
-  c = world.original ? KANAGAWA : compose(world);
+  c = world.original ? KANAGAWA : {
+    ...KANAGAWA, elements: [], spray: [],
+    cartouche: world.flipped ? [FRAME_W - KANAGAWA.cartouche[0] - 60, KANAGAWA.cartouche[1]] : KANAGAWA.cartouche,
+  };
   cache.set(world, c);
   return c;
-}
-
-/** The parts of Hokusai's composition, which every other edition rearranges. */
-const part = <T extends Element>(id: number) => KANAGAWA.elements.find((e) => e.id === id) as T;
-const ARCH = {
-  fuji: () => part<FujiSpec>(1), backSwell: () => part<WaveSpec>(3), backBoat: () => part<BoatSpec>(4),
-  great: () => part<WaveSpec>(5), greatBoat: () => part<BoatSpec>(6), mound: () => part<WaveSpec>(7),
-  trough: () => part<WaveSpec>(8), swell: () => part<WaveSpec>(9), troughBoat: () => part<BoatSpec>(10), corner: () => part<WaveSpec>(11),
-};
-
-/** How a part is placed: scaled about an anchor, moved, and then warped. */
-interface Placing { ax: number; ay: number; ox: number; oy: number; sx: number; sy: number; lean?: number; }
-
-/**
- * The layouts a painting can take: Hokusai's own arrangement of a great wave before a far
- * Fuji; two great waves, one behind the other; a wall of water filling the sheet; or a lull
- * with only swells and a large Fuji.
- */
-type Layout = 'kanagawa' | 'twin' | 'wall' | 'lull';
-const LAYOUTS: readonly [Layout, number][] = [['kanagawa', 0.42], ['twin', 0.24], ['wall', 0.18], ['lull', 0.16]];
-
-function compose(world: World): Composition {
-  const r = new Rng(hash(world.s, 0xc0)), noise = new Noise(r), sc = r.range(260, 420), amp = world.warp;
-  let v = r.random(), layout: Layout = 'kanagawa';
-  for (const [k, w] of LAYOUTS) if ((v -= w) < 0) { layout = k; break; }
-  const mirror = world.flipped, big = layout === 'lull';
-  // The carving itself varies from painting to painting: finer or bolder fingers, bigger talons.
-  const fingers = r.range(0.8, 1.3), claws = r.range(0.8, 1.3), strands = r.int(-2, 3), flecks = r.range(0.5, 1.6);
-  // Where the sky meets the sea.
-  const horizon = r.range(-50, 40);
-
-  const warp = ([x, y]: Pt): Pt => {
-    const edge = Math.max(0, Math.min(1, (x + 40) / 160, (FRAME_W + 40 - x) / 160, (H + 20 - y) / 120));
-    return [x + noise.fbm(x / sc, y / sc, 3) * amp * edge, y + noise.fbm(x / sc + 37.1, y / sc + 11.7, 3) * amp * edge];
-  };
-  /** Scale and move a point, keeping anything that was off the sheet off the sheet. */
-  const at = (pl: Placing) => ([x, y]: Pt): Pt => {
-    // Leaning: the higher a point, the further forward (or back) it goes.
-    let X = pl.ox + (x - pl.ax) * pl.sx + (pl.ay - y) * (pl.lean ?? 0), Y = pl.oy + (y - pl.ay) * pl.sy;
-    if (x <= 0) X = Math.min(X, x);
-    if (x >= FRAME_W) X = Math.max(X, x);
-    if (y >= H) Y = Math.max(Y, y);
-    [X, Y] = warp([X, Y]);
-    return mirror ? [FRAME_W - X, Y] : [X, Y];
-  };
-  const turn = (t: 1 | -1): 1 | -1 => (mirror ? (-t as 1 | -1) : t);
-  let nid = 100;
-  const wave = (w: WaveSpec, pl: Placing): WaveSpec => {
-    const m = (pts: Pt[]) => pts.map(at(pl)), k = (pl.sx + pl.sy) / 2;
-    return {
-      ...w, id: nid++, outline: m(w.outline), close: m(w.close),
-      stripes: w.stripes?.map((s) => ({ ...s, a: m(s.a), b: m(s.b), rows: Math.max(2, s.rows + r.int(-1, 1)) })),
-      slivers: w.slivers?.filter(() => r.chance(0.85)).map((sv) => ({ ...sv, spine: m(sv.spine), w: sv.w * k * r.range(0.75, 1.3) })),
-      zones: w.zones.map((z) => ({
-        ...z, edge: m(z.edge), close: m(z.close), flecks: z.flecks && z.flecks * flecks, fringe: z.fringe && z.fringe * Math.sqrt(k),
-        lobes: z.lobes && { ...z.lobes, side: turn(z.lobes.side), period: z.lobes.period * fingers * Math.sqrt(k), amp: z.lobes.amp * fingers * Math.sqrt(k) },
-        claws: z.claws && { ...z.claws, turn: turn(z.claws.turn), size: z.claws.size * claws * Math.sqrt(k) },
-        strands: z.strands && { ...z.strands, to: m(z.strands.to), n: Math.max(1, z.strands.n + strands) },
-      })),
-      crowns: w.crowns?.map((c) => ({ ...c, a: m(c.a), b: m(c.b), turn: turn(c.turn), size: c.size * claws * Math.sqrt(k), step: c.step * Math.sqrt(k) })),
-    };
-  };
-  const boat = (b: BoatSpec, pl: Placing): BoatSpec | null =>
-    r.chance(0.85) ? { ...b, id: nid++, keel: b.keel.map(at(pl)), beam: b.beam * Math.sqrt(pl.sx * pl.sy), rowers: Math.max(3, b.rowers + r.int(-2, 2)) } : null;
-  const still = (sx = 1, sy = sx): Placing => ({ ax: 740, ay: H, ox: 740, oy: H, sx, sy });
-
-  const out: Element[] = [];
-  const push = (e: Element | null) => { if (e) out.push(e); };
-
-  // The far sea, the full width of the sheet.
-  const hz = KANAGAWA.horizon + horizon;
-  const seaTop: Pt[] = [];
-  for (let i = 0; i <= 8; i++) seaTop.push([-20 + i * 190, hz + 2 + r.range(-4, 4)]);
-  push({ kind: 'sea', id: nid++, top: seaTop, bottom: hz + 90 });
-
-  // The swell behind, breaking back the other way, with its boat.
-  if (layout !== 'wall' || r.chance(0.5)) {
-    const pl: Placing = { ax: FRAME_W, ay: H, ox: FRAME_W + r.range(-80, 60), oy: H + horizon * 0.5, sx: r.range(0.8, 1.2), sy: r.range(0.75, 1.25) };
-    push(wave(ARCH.backSwell(), pl));
-    push(boat(ARCH.backBoat(), pl));
-  }
-
-  // The great waves, the farther first.
-  const great = (ox: number, s: number, sy: number) => {
-    const pl: Placing = { ax: 380, ay: H, ox, oy: H, sx: s, sy, lean: r.range(-0.12, 0.16) };
-    push(wave(ARCH.great(), pl));
-    push(boat(ARCH.greatBoat(), pl));
-    return pl;
-  };
-  let hero: Placing | null = null;
-  if (layout === 'twin') {
-    const s = r.range(0.38, 0.55);
-    great(r.range(950, 1200), s, s * r.range(0.9, 1.2));
-    hero = great(r.range(260, 460), r.range(0.75, 0.95), r.range(0.8, 1));
-  } else if (layout === 'kanagawa') hero = great(r.range(300, 520), r.range(0.8, 1.08), r.range(0.82, 1.1));
-  else if (layout === 'wall') hero = great(r.range(480, 640), r.range(1.1, 1.3), r.range(1, 1.15));
-
-  // The foreground: the small wave that echoes Fuji, the trough, the long swell, and the wave rising in the corner.
-  const fg = still(r.range(0.9, 1.1), r.range(big ? 0.7 : 0.85, 1.15));
-  fg.ox += r.range(-90, 90);
-  if (layout !== 'wall' || r.chance(0.5)) push(wave(ARCH.mound(), fg));
-  push(wave(ARCH.trough(), fg));
-  push(wave(ARCH.swell(), fg));
-  push(boat(ARCH.troughBoat(), fg));
-  if (r.chance(0.8)) push(wave(ARCH.corner(), still(r.range(0.85, 1.2), r.range(0.8, 1.3))));
-
-  // Fuji stands where the most sky opens over the horizon, small and far or, in a lull, large and near.
-  const f = ARCH.fuji(), hz0 = hz;
-  const waves = out.filter((e): e is WaveSpec => e.kind === 'wave');
-  const surface = (x: number) => {
-    let top = H;
-    for (const w of waves) {
-      const o = w.outline;
-      for (let i = 1; i < o.length; i++) {
-        const [x0, y0] = o[i - 1], [x1, y1] = o[i];
-        if ((x0 - x) * (x1 - x) <= 0 && x0 !== x1) top = Math.min(top, y0 + (y1 - y0) * (x - x0) / (x1 - x0));
-      }
-    }
-    return top;
-  };
-  let fujiX = FRAME_W / 2, room = -1;
-  for (let i = 0; i < 24; i++) {
-    const x = r.range(180, FRAME_W - 180), open = Math.min(surface(x - 90), surface(x), surface(x + 90)) - hz0 * 0.92;
-    if (open > room) { room = open; fujiX = x; }
-  }
-  const fh = f.h * (big ? r.range(2.2, 3.4) : r.range(0.75, 1.5));
-  // Fuji goes in behind everything, just after the sky.
-  out.unshift({ ...f, id: nid++, x: fujiX, base: hz0, h: fh, w: fh * r.range(1.05, 1.35) });
-
-  const sprayAt = hero ? at(hero) : at(still());
-  return {
-    dusk: [KANAGAWA.dusk[0] + horizon * r.range(0.6, 1.4), KANAGAWA.dusk[1] + horizon], horizon: hz,
-    cartouche: mirror ? [FRAME_W - KANAGAWA.cartouche[0] - 60, KANAGAWA.cartouche[1]] : KANAGAWA.cartouche,
-    spray: hero ? KANAGAWA.spray.map((s) => ({ a: s.a.map(sprayAt), b: s.b.map(sprayAt), n: Math.round(s.n * r.range(0.5, 2)) })) : [],
-    elements: out,
-  };
-}
-
-// ------------------------------------------------------------ the endless sea
-
-/**
- * A great wave rising in the endless sea: Hokusai's great wave and the small wave before it,
- * with its boat, set down in the world at x, `s` times the print's size, breaking toward `dir`.
- */
-export interface Great { id: number; x: number; s: number; dir: 1 | -1; z: number; lean: number; boat: boolean; }
-
-/** Where a great wave's foot meets the sea, in print coordinates mapped to the world. */
-const GREAT_FOOT = H * 1.04;
-
-const groups = new Map<number, { elements: Element[]; x0: number; x1: number }>();
-
-/**
- * The parts of a great wave in the world, carved exactly as the print's. In the print the sheet's
- * edges cut both waves off; out on the sea their backs run on down to the water.
- */
-export function greatGroup(world: World, g: Great): { elements: Element[]; x0: number; x1: number } {
-  const key = hash(world.s, g.id);
-  let out = groups.get(key);
-  if (out) return out;
-  if (groups.size > 64) groups.clear();
-  const r = new Rng(hash(world.s, 0x6a, g.id)), noise = new Noise(r), amp = 14 + 26 * g.s, mirror = g.dir < 0;
-  const at = ([x, y]: Pt): Pt => {
-    const u = (x - 380 + (H - y) * g.lean) * g.s + noise.fbm(x / 300, y / 300, 3) * amp;
-    return [g.x + (mirror ? -u : u), GREAT_FOOT + (y - H) * g.s + noise.fbm(x / 300 + 37.1, y / 300 + 11.7, 3) * amp * 0.6];
-  };
-  const turn = (t: 1 | -1): 1 | -1 => (mirror ? (-t as 1 | -1) : t);
-  const k = Math.sqrt(g.s);
-  const place = (w: WaveSpec, id: number): WaveSpec => {
-    const m = (pts: Pt[]) => pts.map(at);
-    return {
-      ...w, id, outline: m(w.outline), close: m(w.close),
-      stripes: w.stripes?.map((st) => ({ ...st, a: m(st.a), b: m(st.b) })),
-      slivers: w.slivers?.map((sv) => ({ ...sv, spine: m(sv.spine), w: sv.w * g.s })),
-      zones: w.zones.map((z) => ({
-        ...z, edge: m(z.edge), close: m(z.close), fringe: z.fringe && z.fringe * k,
-        lobes: z.lobes && { ...z.lobes, side: turn(z.lobes.side), period: z.lobes.period * k, amp: z.lobes.amp * k },
-        claws: z.claws && { ...z.claws, turn: turn(z.claws.turn), size: z.claws.size * k },
-        strands: z.strands && { ...z.strands, to: m(z.strands.to) },
-      })),
-      crowns: w.crowns?.map((c) => ({ ...c, a: m(c.a), b: m(c.b), turn: turn(c.turn), size: c.size * k, step: c.step * k })),
-    };
-  };
-  const great = ARCH.great(), mound = ARCH.mound(), elements: Element[] = [];
-  elements.push(place({
-    ...great,
-    outline: [[-560, 1000], [-430, 790], [-280, 570], [-130, 425], ...great.outline],
-    close: great.close.slice(0, -1).concat([[-560, 1040]]),
-    key: [0, 0.86],
-    // The blue at the very edge of the sheet belongs to the wave beyond it; instead, the blue of
-    // the back rises into the foam down its whole run, in fingers tipped with claws.
-    zones: [{
-      ink: 'deep',
-      edge: [[200, 470], [90, 418], [-40, 452], [-170, 560], [-300, 700], [-420, 860], [-520, 990]],
-      close: [[-600, 1040], [120, 1040], [230, 720]],
-      lobes: { period: 38, amp: 16, side: 1, lean: 0.45 },
-      claws: { size: 24, turn: 1 },
-      fringe: 10,
-      strands: { to: [[-480, 1040], [-200, 760], [60, 600], [210, 640]], n: 4, w: 0.025, ink: 'blue' },
-      flecks: 6,
-    }, ...great.zones.filter((z) => z.edge[0][0] > 0)],
-  }, hash(g.id, 1)));
-  if (g.boat) {
-    const b = ARCH.greatBoat();
-    elements.push({ ...b, id: hash(g.id, 2), keel: b.keel.map(at), beam: b.beam * g.s });
-  }
-  elements.push(place({
-    ...mound,
-    outline: [[-380, 1010], [-200, 865], ...mound.outline, [1000, 905], [1150, 1010]],
-    close: [[1150, 1040], [-380, 1040]],
-  }, hash(g.id, 3)));
-  let x0 = Infinity, x1 = -Infinity;
-  for (const e of elements) if (e.kind === 'wave') for (const [x] of e.outline) { x0 = Math.min(x0, x); x1 = Math.max(x1, x); }
-  out = { elements, x0: x0 - 60, x1: x1 + 60 };
-  groups.set(key, out);
-  return out;
 }

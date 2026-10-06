@@ -8,10 +8,11 @@ import { Path, spline } from '../core/curve';
 import { clamp, lerp } from '../core/math';
 import { carvedLine, polyPath, type Ctx, type Pt } from '../core/print';
 import { hash, Rng } from '../core/rng';
-import { composition, greatGroup, type BoatSpec, type Composition, type Element, type FujiSpec, type SeaSpec, type WaveSpec, type ZoneInk } from '../world/kanagawa';
+import { composition, type BoatSpec, type Composition, type Element, type FujiSpec, type SeaSpec, type WaveSpec, type ZoneInk } from '../world/kanagawa';
 import { FRAME_W, H, TINTS, type Tint, type World } from '../world/world';
 import { blob, crown, flecks, lobed, paintLayers, sliver, talon, talons, talonsOnTips, talonLayers, type Ink, type Layer, type Palette } from './ink';
-import { depthLayer, L, spanInPad, type ChunkPlan } from './plan';
+import { context2d, makeCanvas } from './canvas';
+import { L, type ChunkPlan } from './plan';
 import { planOrbs, planWeather } from './sky';
 
 /** The inks of the print on a clear day, and what each becomes in other weather. */
@@ -35,16 +36,6 @@ function paletteOf(t: Tint): Palette {
   const out = {} as Palette;
   for (const k in DAY) out[k as Ink] = mix(DAY[k as Ink], TINT[k as Ink](t), 0.8);
   return out;
-}
-
-/** The great waves out on the sea, carved and printed as the print's own (see greatGroup). */
-export function planGreats(p: ChunkPlan) {
-  for (const g of p.near.greats) {
-    const { elements, x0, x1 } = greatGroup(p.world, g);
-    if (!spanInPad(p, x0, x1)) continue;
-    const pal = paletteOf(p.world.tintAt(g.x)), layer = depthLayer(g.z, g.id);
-    elements.forEach((e, i) => p.items.push({ layer, key: i, op: (ctx) => paintElement(ctx, e, layersOf(p.world, e), pal) }));
-  }
 }
 
 /** The sky's grading, top to the horizon, on a clear day. */
@@ -110,7 +101,34 @@ function paintElement(ctx: Ctx, e: Element, layers: Layer[], pal: Palette) {
 
 // ------------------------------------------------------------ sky
 
-function sky(ctx: Ctx, comp: Composition, world: World, pal: Palette) {
+/**
+ * Out of Hokusai's print the voyage sails on under his sky: it fades into the sea's own sky over
+ * a few hundred px either side of the sheet.
+ */
+export function planPrintSkyFade(p: ChunkPlan) {
+  const w = p.world, FADE = 700;
+  if (!w.original || p.x1 + p.pad < -FADE || p.x0 - p.pad > FRAME_W + FADE) return;
+  const comp = composition(w), pal = palette(w);
+  p.items.push({
+    layer: L.SKY + 0.01, key: 0, op: (ctx) => {
+      // Hokusai's sky on a sheet of its own, faded out across by a mask, then laid over the sea's.
+      const S = 0.25, side = p.x0 < 0 ? -1 : 1, x0 = side < 0 ? -FADE : FRAME_W;
+      const sheet = makeCanvas(Math.ceil(FADE * S), Math.ceil(H * S)), sc = context2d(sheet);
+      sc.scale(S, S);
+      sc.fillStyle = skyGradient(sc, comp, w, pal);
+      sc.fillRect(0, 0, FADE, H);
+      const m = sc.createLinearGradient(0, 0, FADE, 0);
+      m.addColorStop(side < 0 ? 1 : 0, 'rgba(0,0,0,1)');
+      m.addColorStop(side < 0 ? 0 : 1, 'rgba(0,0,0,0)');
+      sc.globalCompositeOperation = 'destination-in';
+      sc.fillStyle = m;
+      sc.fillRect(0, 0, FADE, H);
+      ctx.drawImage(sheet as CanvasImageSource, x0, 0, FADE, H);
+    },
+  });
+}
+
+function skyGradient(ctx: Ctx, comp: Composition, world: World, pal: Palette): CanvasGradient {
   const t = world.mood === 'day' ? null : world.tintAt(FRAME_W / 2);
   const g = ctx.createLinearGradient(0, 0, 0, comp.horizon);
   for (const [f, c] of SKY) g.addColorStop(f, css(t ? mix(c, f < 0.1 ? t.skyTop : t.sky, 0.85) : c));
@@ -120,7 +138,13 @@ function sky(ctx: Ctx, comp: Composition, world: World, pal: Palette) {
   g.addColorStop(lerp(d0, d1, 0.3) / hz, css(mix(grey, t ? t.skyLow : [242, 232, 210], 0.45)));
   g.addColorStop(lerp(d0, d1, 0.6) / hz, css(mix(grey, t ? t.skyLow : [242, 232, 210], 0.08)));
   g.addColorStop(1, css(grey));
-  ctx.fillStyle = g;
+  return g;
+}
+
+function sky(ctx: Ctx, comp: Composition, world: World, pal: Palette) {
+  const t = world.mood === 'day' ? null : world.tintAt(FRAME_W / 2);
+  const d0 = comp.dusk[0], grey = t ? mix(pal.shade, t.skyLow, 0.3) : ([124, 125, 119] as RGB);
+  ctx.fillStyle = skyGradient(ctx, comp, world, pal);
   ctx.fillRect(0, 0, FRAME_W, H);
   // The grey is wiped onto the block unevenly, so its upper edge billows like low cloud.
   const r = new Rng(hash(world.s, 0x5c7));

@@ -19,8 +19,9 @@ import type { Pt } from '../core/print';
 import { clamp, lerp, smoothstep } from '../core/math';
 import { Noise } from '../core/noise';
 import { hash, hashFloat, Rng } from '../core/rng';
+import { KANAGAWA } from './kanagawa';
 import { zOf } from './wave';
-import { H, HZ, type World } from './world';
+import { FRAME_W, H, HZ, type World } from './world';
 
 /** Distance between samples along a surface, in world px. Samples sit on a world grid. */
 export const STEP = 3;
@@ -50,6 +51,8 @@ export interface Packet {
   shear: number;
   dir: 1 | -1;
   kind: Kind;
+  /** Carries Hokusai's water on past the edge of his sheet (see `bridges`). */
+  bridge?: boolean;
 }
 
 /** A simulated lip: its spine from the crest to the tip, its thickness along it, and its edges. */
@@ -94,7 +97,9 @@ export function packetAt(world: World, band: Band, k: number): Packet | null {
   if (memo !== undefined) return memo;
   const r = new Rng(key), c = (k + r.range(0.2, 0.8)) * band.cell, rough = roughness(world, c);
   let p: Packet | null = null;
-  if (r.chance(0.3 + 0.55 * rough)) {
+  const hero = heroes(world).find((h) => h.band === band.j && Math.floor(h.c / band.cell) === k);
+  if (hero) p = hero;
+  else if (r.chance(0.3 + 0.55 * rough)) {
     // Mostly modest crests; now and then a great one, more often in front and in rough water.
     const big = Math.pow(r.random(), 2.2) * rough;
     const E = band.s * lerp(40, 640, big) * r.range(0.8, 1.2);
@@ -107,6 +112,11 @@ export function packetAt(world: World, band: Band, k: number): Packet | null {
       dir: world.dir, kind,
     };
   }
+  // Around Hokusai's own print the sea is his: nothing of the field may reach into it.
+  if (p && p !== hero && world.original) {
+    const reach = Math.max(p.back, p.front) * 3 + p.E;
+    if (p.c + reach > 0 && p.c - reach < FRAME_W) p = null;
+  }
   if (packetMemo.size > 20000) packetMemo.clear();
   packetMemo.set(key, p);
   return p;
@@ -115,13 +125,67 @@ const packetMemo = new Map<number, Packet | null>();
 
 /** The packets that can reach [x0, x1] of a band. */
 export function packetsNear(world: World, band: Band, x0: number, x1: number): Packet[] {
-  const out: Packet[] = [];
+  const out: Packet[] = world.original ? bridges(world).filter((b) => b.band === band.j) : [];
   for (let k = Math.floor((x0 - FIELD_REACH) / band.cell); k <= Math.ceil((x1 + FIELD_REACH) / band.cell); k++) {
     const p = packetAt(world, band, k);
     if (p && p.c + p.front * 3 + p.E > x0 - FIELD_REACH * 0.2 && p.c - p.back * 3 < x1 + FIELD_REACH * 0.2) out.push(p);
   }
   return out;
 }
+
+const NEAR = BANDS - 1;
+
+/**
+ * Every edition but Hokusai's own is a window onto the field with a great wave forced into it: a
+ * hero breaking in the nearest band, and sometimes a second, smaller, farther behind it.
+ */
+function heroes(world: World): Packet[] {
+  if (world.original) return [];
+  let h = heroMemo.get(world.s);
+  if (h) return h;
+  const r = new Rng(hash(world.s, 0x4e70)), all = bands(), dir = world.dir;
+  const at = (lo: number, hi: number) => (dir > 0 ? r.range(lo, hi) : FRAME_W - r.range(lo, hi) + 0);
+  const great = (j: number, x: number, E: number): Packet => ({
+    id: hash(world.s, 0x4e71, j), band: j, c: x, E, back: E * r.range(1.6, 2.3), front: E * r.range(0.5, 0.7),
+    shear: r.range(0.3, 0.42), dir, kind: 'plunge',
+  });
+  h = [great(NEAR, at(300, 640), all[NEAR].s * r.range(560, 700))];
+  if (r.chance(0.4)) h.push(great(NEAR - 3, at(900, 1150), all[NEAR - 3].s * r.range(520, 680)));
+  heroMemo.set(world.s, h);
+  return h;
+}
+const heroMemo = new Map<number, Packet[]>();
+
+/** The top of Hokusai's water at x, in the print. */
+function printTop(x: number): number {
+  let top = H;
+  for (const e of KANAGAWA.elements) {
+    if (e.kind !== 'wave') continue;
+    const o = e.outline;
+    for (let i = 1; i < o.length; i++) {
+      const [x0, y0] = o[i - 1], [x1, y1] = o[i];
+      if ((x0 - x) * (x1 - x) <= 0 && x0 !== x1) top = Math.min(top, y0 + ((y1 - y0) * (x - x0)) / (x1 - x0));
+    }
+  }
+  return top;
+}
+
+/**
+ * Where the voyage leaves Hokusai's print, the water carries straight on: a crest in the nearest
+ * band meets each edge of the sheet at the height the print leaves it. Past the right edge the
+ * swell that rises out of the sheet crests and breaks back, as the print shows it beginning to;
+ * past the left, the great wave's long back runs down to the sea.
+ */
+function bridges(world: World): Packet[] {
+  if (bridgeMemo) return bridgeMemo;
+  const band = bands()[NEAR];
+  const edge = (x: number, dir: 1 | -1): Packet => {
+    const E = (band.base - printTop(x)) * 1.13, front = E * 0.9;
+    return { id: hash(world.s, 0xb1, x), band: NEAR, c: x - dir * front * 0.35, E, back: E * 1.1, front, shear: 0, dir, kind: 'spill', bridge: true };
+  };
+  return (bridgeMemo = [edge(FRAME_W, -1), edge(0, 1)]);
+}
+let bridgeMemo: Packet[] | null = null;
 
 /** A packet's lift at rest position a, as a share of its height: long behind, short in front. */
 function lift(p: Packet, a: number): number {
@@ -199,8 +263,9 @@ function sampleRange(world: World, band: Band, m0: number, m1: number): Sample[]
       const f = lift(p, a), dh = p.E * f;
       if (dh < 0.01) continue;
       h += dh;
-      // Sheared forward in proportion to height: the top of a crest runs ahead of its foot.
-      x += p.dir * p.shear * p.E * f * f;
+      // Sheared forward in proportion to height: the top of a crest runs ahead of its foot, but
+      // never so far that the surface folds back on itself (only a breaking lip overhangs).
+      x += p.dir * Math.min(p.shear, (0.7 * p.front) / p.E) * p.E * f * f;
       if (dh > (best ? best.E * bf : 0)) { best = p; bf = f; }
     }
     // Under a breaking lip, the face is drawn back into the hollow.
@@ -230,7 +295,7 @@ export function curlOf(p: Packet, crest: Pt): Curl {
   if (c) return c;
   const r = new Rng(hash(p.id, 0xc1)), R = curlRadius(p);
   // In the lip's own frame: x forward, y up, the crest at the origin.
-  const L = R * r.range(2.7, 3.4), turn = r.range(2.7, 3.1), k = r.range(1.5, 2.1), n = 48;
+  const L = R * r.range(2.1, 2.6), turn = r.range(2.4, 2.8), k = r.range(1.5, 2.1), n = 48;
   let x = 0, y = 0, a = r.range(0.15, 0.35);
   const local: Pt[] = [[0, 0]];
   for (let i = 1; i < n; i++) {
@@ -276,3 +341,22 @@ export function crestOf(samples: Sample[], p: Packet): number {
 
 /** A stable unit value for anything in a band, from the world grid. */
 export const bandFloat = (world: World, band: Band, ...v: number[]) => hashFloat(world.s, 0xf2, band.j, ...v);
+
+/** The breaking lips of the field whose crests lie in [x0, x1] (for the spray that leaps from them). */
+export function breakersNear(world: World, x0: number, x1: number): { packet: Packet; curl: Curl }[] {
+  const out: { packet: Packet; curl: Curl }[] = [];
+  for (const band of bands()) {
+    if (band.s < 0.3) continue;
+    for (const p of packetsNear(world, band, x0, x1)) {
+      if (p.kind !== 'plunge' || p.c < x0 - p.E || p.c > x1 + p.E) continue;
+      let c = curlMemo.get(p.id);
+      if (!c) {
+        const S = surface(world, band, p.c - p.back * 2, p.c + p.front * 2), i = crestOf(S, p);
+        if (i < 0) continue;
+        c = curlOf(p, S[i].p);
+      }
+      out.push({ packet: p, curl: c });
+    }
+  }
+  return out;
+}

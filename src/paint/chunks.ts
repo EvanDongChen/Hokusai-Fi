@@ -1,7 +1,7 @@
 // Plans a world chunk as an ordered list of draw operations. Runs in a worker or on the page.
 import { CW, H, World } from '../world/world';
 import { context2d, makeCanvas, type AnyCanvas } from './canvas';
-import { planPrint } from './kanagawa';
+import { planPrint, planPrintSkyFade } from './kanagawa';
 import type { ChunkPlan, Op } from './plan';
 import { Press } from './press';
 import { planSea } from './sea';
@@ -13,9 +13,11 @@ const PAD = 40;
 
 export function planChunk(world: World, c: number): Op[] {
   const p: ChunkPlan = { world, c, x0: c * CW, x1: (c + 1) * CW, pad: PAD, near: world.near(c), items: [] };
-  if (c === 0 || c === 1) planPrint(p);
+  // Hokusai's own print is his composition; every other sea, and every other edition, is the field's.
+  if ((c === 0 || c === 1) && world.original) planPrint(p);
   else {
     planSky(p);
+    planPrintSkyFade(p);
     planShore(p);
     planSea(p);
     planSurf(p);

@@ -24,7 +24,7 @@ There is no test suite. Run `npm run typecheck` before committing. Files named `
 
 - Match the surrounding code's style, naming and comment density.
 - World generation is deterministic: the same seed must always print the same sea. Derive randomness from `hash(seed, chunk)` (see `src/core/`), never from `Math.random()` in printing or world code.
-- Chunks tile seamlessly because shapes are built in world coordinates and sorted by a global key. Waves, boats and islets are ordered by depth (`depthLayer`). Keep that invariant, and keep any feature's reach within two chunks (`MAX_REACH` in `wave.ts`).
-- The print (chunks 0 and 1) is a composition in `src/world/kanagawa.ts` carved by the procedures in `src/paint/ink.ts`. Seed `1831` must stay Hokusai's composition; other seeds are composed from its parts. Never ship traced or scanned image data.
+- Chunks tile seamlessly because shapes are built in world coordinates and sorted by a global key. The sea's bands and islets are ordered by depth (`depthLayer`). Keep that invariant, and keep any feature's reach within two chunks (`FIELD_REACH` in `field.ts`). Seed marks by their world position (band, stretch, packet id), never by the chunk.
+- The sea is one field (`src/world/field.ts`) carved by `src/paint/surf.ts` with the procedures in `src/paint/ink.ts`. Seed `1831`'s print (chunks 0 and 1) must stay Hokusai's composition (`src/world/kanagawa.ts`); every other edition is a window onto the field. Never ship traced or scanned image data.
 - Printing runs in workers (`src/paint/worker.ts`). Keep worker canvases CPU-backed. Anything needing web fonts (the cartouche) is drawn on the page.
 - Animation lives in `src/anim/life.ts` and draws over the finished print. It must not change what a seed prints.

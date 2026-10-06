@@ -60,7 +60,11 @@ export function planSurf(p: ChunkPlan) {
     // Foam, stripes and claws, a stretch at a time.
     const cw = Math.max(48, b.s * 320);
     const k0 = Math.floor(vis[0].a / cw), k1 = Math.floor(vis[vis.length - 1].a / cw);
-    for (let k = k0; k <= k1; k++) carveStretch(push, world.s, b, S, k, cw, world.tintAt((k + 0.5) * cw), world.dir);
+    // All the band's stripes, then all its foam, then its claws, so no stretch's stripes run
+    // over its neighbour's foam.
+    const layers: Item['op'][][] = [[], [], []];
+    for (let k = k0; k <= k1; k++) carveStretch(layers, world.s, b, S, k, cw, world.tintAt((k + 0.5) * cw), world.dir, body);
+    for (const l of layers) push(...l);
 
     // Breaking crests.
     for (const pk of packetsNear(world, b, lo - 600, hi + 600)) {
@@ -112,14 +116,15 @@ function foamDepth(b: Band, s: Sample): number {
   const pk = s.packet;
   let d = b.s * 3 + 1;
   if (pk && s.f > 0.15) {
-    const back = (s.a - pk.c) * pk.dir < 0, big = pk.kind === 'swell' ? 0.12 : pk.kind === 'spill' ? 0.3 : 0.42;
+    // A bridge is white on both sides, like the swells of the print it carries on.
+    const back = pk.bridge || (s.a - pk.c) * pk.dir < 0, big = pk.kind === 'swell' ? 0.1 : pk.kind === 'spill' ? 0.2 : 0.24;
     d += pk.E * s.f * (back ? big : big * 0.25) * Math.pow(s.f, 0.6);
   }
   return d;
 }
 
 /** One stretch of a band: the white of the backs, fingers and claws, and stripes. */
-function carveStretch(push: (...ops: Item['op'][]) => void, seed: number, b: Band, S: Sample[], k: number, cw: number, t: Tint, dir: 1 | -1) {
+function carveStretch(out: Item['op'][][], seed: number, b: Band, S: Sample[], k: number, cw: number, t: Tint, dir: 1 | -1, body: Pt[]) {
   const from = k * cw, to = (k + 1) * cw;
   // The samples of this stretch, one more each side so neighbouring stretches meet.
   let i0 = S.findIndex((s) => s.a >= from), i1 = i0;
@@ -136,7 +141,9 @@ function carveStretch(push: (...ops: Item['op'][]) => void, seed: number, b: Ban
 
   // Stripes below the foam, following the surface.
   const stripes: { pts: Pt[]; ink: RGB }[] = [];
-  const rows = b.s < 0.15 ? 1 : b.s < 0.4 ? 2 : 4, gap = 6 + b.s * 34;
+  // Stripes all the way down a tall crest, a few under a low one.
+  const gap = 6 + b.s * 34, tall = Math.max(...seg.map((s) => s.h)) - b.s * 20;
+  const rows = b.s < 0.15 ? 1 : b.s < 0.4 ? 2 : clamp(Math.round(tall / gap * 0.7), 3, 12);
   for (let row = 0; row < rows; row++) {
     if (!r.chance(0.8)) continue;
     const a = r.range(0, 0.4), z = r.range(a + 0.35, 1), w = gap * r.range(0.25, 0.45);
@@ -144,11 +151,11 @@ function carveStretch(push: (...ops: Item['op'][]) => void, seed: number, b: Ban
     const up: Pt[] = [], dn: Pt[] = [];
     for (let i = j0; i <= j1; i++) {
       const u = (i - j0) / Math.max(1, j1 - j0), hw = w * Math.pow(Math.sin(Math.PI * u), 0.6) / 2;
-      const d = D[i] + gap * (row + 0.8) + Math.sin(u * 5 + row) * gap * 0.15;
+      const d = D[i] + gap * (row + 0.8) * (1 + row * 0.08) + Math.sin(u * 5 + row) * gap * 0.15;
       up.push([seg[i].p[0] + n[i][0] * (d - hw), seg[i].p[1] + n[i][1] * (d - hw)]);
       dn.push([seg[i].p[0] + n[i][0] * (d + hw), seg[i].p[1] + n[i][1] * (d + hw)]);
     }
-    stripes.push({ pts: up.concat(dn.reverse()), ink: row % 2 ? t.deep : mix(t.band, t.seaNear, 0.3) });
+    stripes.push({ pts: up.concat(dn.reverse()), ink: row % 3 === 1 ? t.deep : row % 3 === 2 ? t.seaNear : mix(t.band, t.seaNear, 0.3) });
   }
 
   // The blue rises into the foam in fingers, the bigger the deeper the foam.
@@ -160,13 +167,25 @@ function carveStretch(push: (...ops: Item['op'][]) => void, seed: number, b: Ban
     if (meanD > 6) talonsOnTips(tl, r, lb.tips, clamp(meanD * 0.45, 3.5, 28), dir, { every: 0.85 });
   }
   const foam = top.concat(edge.slice().reverse()), lw = keyWidth(b);
-  push((ctx) => {
+  // Stripes and foam lie in the water: offset far under a steep surface they would swing out.
+  const inWater = (ctx: CanvasRenderingContext2D) => {
+    ctx.save();
+    ctx.beginPath();
+    polyPath(ctx, body);
+    ctx.clip();
+  };
+  out[0].push((ctx) => {
+    inWater(ctx);
     for (const st of stripes) {
       ctx.fillStyle = css(st.ink);
       ctx.beginPath();
       polyPath(ctx, st.pts);
       ctx.fill();
     }
+    ctx.restore();
+  });
+  out[1].push((ctx) => {
+    inWater(ctx);
     ctx.fillStyle = css(t.foam);
     ctx.beginPath();
     polyPath(ctx, foam);
@@ -177,8 +196,9 @@ function carveStretch(push: (...ops: Item['op'][]) => void, seed: number, b: Ban
       polyPath(ctx, worldLine(edge, lw * 0.6, hash(seed, b.j, k, 0x12), false));
       onKey(ctx, () => ctx.fill());
     }
+    ctx.restore();
   });
-  if (tl.body.length) push((ctx) => paintLayers(ctx, talonLayers(tl, clamp(lw * 0.55, 0.4, 1.3)), inks(t)));
+  if (tl.body.length) out[2].push((ctx) => paintLayers(ctx, talonLayers(tl, clamp(lw * 0.55, 0.4, 1.3)), inks(t)));
 }
 
 /** Unit normals into the water (to the right of a left-to-right surface on screen). */

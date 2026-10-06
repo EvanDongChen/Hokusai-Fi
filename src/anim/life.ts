@@ -12,7 +12,7 @@
 import { css, type RGB } from '../core/color';
 import { clamp } from '../core/math';
 import { Rng } from '../core/rng';
-import { waveShape, type Wave } from '../world/wave';
+import { breakersNear } from '../world/field';
 import { H, HZ, World } from '../world/world';
 
 /** Maps world coordinates to canvas pixels. */
@@ -34,31 +34,25 @@ export class Life {
 
   constructor(private world: World) {}
 
-  private waves(view: View): Wave[] {
-    const out: Wave[] = [];
-    for (let c = World.chunkOf(view.x0); c <= World.chunkOf(view.x1); c++) {
-      for (const w of this.world.features(c).waves) if (w.curl > 0.5 && w.h > 110) out.push(w);
-    }
-    return out;
-  }
-
   update(dt: number, view: View) {
     const r = this.rng, w = this.world, mid = (view.x0 + view.x1) / 2, span = view.x1 - view.x0;
     this.t += dt;
 
-    // Spray from each curling lip, more from the bigger waves.
-    for (const wave of this.waves(view)) {
-      const s = waveShape(wave), rate = (wave.h / 300) * wave.foam * 9 * this.quality;
+    // Spray from each breaking lip, more from the bigger ones.
+    for (const { packet, curl } of breakersNear(w, view.x0, view.x1)) {
+      const rate = (packet.E / 300) * 9 * this.quality, o = curl.outer;
       let n = rate * dt;
-      const t = w.tintAt(wave.x);
+      const t = w.tintAt(packet.c);
       while (n > 0 && this.flecks.length < 500) {
         if (n < 1 && r.random() > n) break;
         n -= 1;
-        const l = s.lip[Math.floor(r.range(0.25, 1) * (s.lip.length - 1))];
-        const sp = r.range(20, 70) * Math.sqrt(wave.h / 300);
+        // From the leading half of the lip, flung on along it and outward.
+        const i = Math.floor(r.range(0.4, 0.95) * (o.length - 2)), a = o[i], b = o[i + 1];
+        const l = Math.hypot(b[0] - a[0], b[1] - a[1]) || 1, tx = (b[0] - a[0]) / l, ty = (b[1] - a[1]) / l;
+        const sp = r.range(20, 70) * Math.sqrt(packet.E / 300);
         this.flecks.push({
-          x: l.p[0], y: l.p[1], vx: l.n[0] * sp + l.t[0] * sp * 0.8, vy: l.n[1] * sp + l.t[1] * sp * 0.8 - 10,
-          r: s.R * r.range(0.006, 0.018) + 0.6, age: 0, life: r.range(1.4, 3.2), foam: t.foam, key: t.key,
+          x: a[0], y: a[1], vx: tx * sp * 0.9 + ty * sp * 0.5 * packet.dir, vy: ty * sp * 0.9 - tx * sp * 0.5 * packet.dir - 10,
+          r: curl.R * r.range(0.02, 0.05) + 0.6, age: 0, life: r.range(1.4, 3.2), foam: t.foam, key: t.key,
         });
       }
     }
