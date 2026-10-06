@@ -13,7 +13,7 @@
 import { css, type RGB } from '../core/color';
 import { Path } from '../core/curve';
 import { clamp, lerp } from '../core/math';
-import { onKey, polyPath, type Ctx, type Pt } from '../core/print';
+import { carvedLine, onKey, polyPath, type Ctx, type Pt } from '../core/print';
 import { Rng } from '../core/rng';
 
 export type Ink = 'paper' | 'aqua' | 'blue' | 'deep' | 'key' | 'shade' | 'boat' | 'boatDark' | 'cloth' | 'skin' | 'hair' | 'snow';
@@ -30,26 +30,17 @@ export function paintLayers(ctx: Ctx, layers: Layer[], pal: Palette) {
 }
 
 function paintLayer(ctx: Ctx, l: Layer, pal: Palette) {
-  {
-    const col = css(pal[l.ink], l.alpha);
-    if (l.fill?.length) {
-      ctx.fillStyle = col;
-      ctx.beginPath();
-      for (const s of l.fill) if (s.length > 2) polyPath(ctx, s);
-      ctx.fill('nonzero');
-    }
-    if (l.line?.length) {
-      ctx.strokeStyle = col;
-      ctx.lineCap = 'round';
-      ctx.lineJoin = 'round';
-      for (const { pts, w } of l.line) {
-        if (pts.length < 2) continue;
-        ctx.lineWidth = w;
-        ctx.beginPath();
-        polyPath(ctx, pts, false);
-        ctx.stroke();
-      }
-    }
+  ctx.fillStyle = css(pal[l.ink], l.alpha);
+  if (l.fill?.length) {
+    ctx.beginPath();
+    for (const s of l.fill) if (s.length > 2) polyPath(ctx, s);
+    ctx.fill('nonzero');
+  }
+  if (l.line?.length) {
+    // Lines are carved as the brush drew them: filled bands that swell and taper.
+    ctx.beginPath();
+    for (const { pts, w } of l.line) if (pts.length > 1) polyPath(ctx, carvedLine(pts, w));
+    ctx.fill('nonzero');
   }
 }
 
@@ -138,15 +129,16 @@ export function talon(out: Talons, rng: Rng, x: number, y: number, ang: number, 
     return o;
   };
   const outer = -turn, inner = turn;
-  // The pale shadow pools inside the curl and along the finger's inner side.
-  const ci = Math.round(n * 0.62), ca = hd[ci], cd = half(0.62) + wid * 0.35;
-  out.halo.push(blob(px[ci] - Math.sin(ca) * cd * inner, py[ci] + Math.cos(ca) * cd * inner, Math.max(2, len * 0.3), rng, 10));
-  out.halo.push(edge(inner, () => 0, 0, 0.7).concat(edge(inner, (t) => half(t) + wid * 0.45 * Math.sin(Math.PI * Math.min(1, t / 0.7)), 0, 0.7).reverse()));
+  // A narrow pale shadow along the finger's inner side, under the curl.
+  out.halo.push(edge(inner, () => 0, 0.1, 0.75).concat(edge(inner, (t) => half(t) + wid * 0.28 * Math.sin(Math.PI * clamp((t - 0.1) / 0.65, 0, 1)), 0.1, 0.75).reverse()));
   out.body.push(edge(1, half).concat(edge(-1, half).reverse()));
-  // The dark hook: a line along the outside of the curl that thickens and wraps round the tip.
-  const h0 = Math.max(0.15, 1 - 26 / Math.max(1, len)), hw = Math.min(wid * 0.26, 3.6);
-  const th = (t: number) => hw * Math.pow(Math.sin(Math.PI * clamp((t - h0) / (1.04 - h0), 0, 1)), 0.6);
+  // The key block outlines the whole finger as the brush drew it: a fine line along its inner
+  // side, and along its outer side one that thickens into the dark hook wrapping round the tip.
+  const hw = Math.min(wid * 0.3, 3.8), h0 = 0.06;
+  const th = (t: number) => hw * (0.22 + 0.78 * Math.pow(clamp((t - 0.45) / 0.45, 0, 1), 1.5)) * Math.pow(Math.sin(Math.PI * clamp((t - h0) / (1.03 - h0), 0, 1)), 0.5);
   out.hook.push(edge(outer, half, h0).concat(edge(outer, (t) => half(t) + th(t), h0).reverse()));
+  const ti = (t: number) => hw * 0.2 * Math.sin(Math.PI * clamp((t - 0.12) / 0.7, 0, 1));
+  out.hook.push(edge(inner, half, 0.12, 0.82).concat(edge(inner, (t) => half(t) + ti(t), 0.12, 0.82).reverse()));
   if (depth > 0 && len > 14) {
     const kids = depth > 1 ? rng.int(2, 3) : rng.int(1, 2);
     for (let j = 0; j < kids; j++) {

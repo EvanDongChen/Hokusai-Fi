@@ -1,6 +1,7 @@
 // Woodblock printing primitives. A print is flat areas of colour, each from its own block, held
 // together by the key block: thin Prussian-blue lines carved around every shape.
 import { css, type RGB } from './color';
+import { hash, hashFloat } from './rng';
 
 export type Pt = [number, number];
 export type Ctx = CanvasRenderingContext2D;
@@ -56,16 +57,56 @@ export function fillPoly(ctx: Ctx, pts: Pt[], col: RGB | string | CanvasGradient
   ctx.fill();
 }
 
-/** A carved line from the key block. */
+/**
+ * A carved line from the key block. The carver cut along Hokusai's brush line, so it is not of
+ * even width: it swells and thins along its run and tapers where the brush lifted.
+ */
 export function keyline(ctx: Ctx, pts: Pt[], w: number, col: RGB, alpha?: number, closed = false) {
   if (pts.length < 2) return;
-  ctx.lineCap = 'round';
-  ctx.lineJoin = 'round';
-  ctx.lineWidth = w;
-  ctx.strokeStyle = css(col, alpha);
+  ctx.fillStyle = css(col, alpha);
   ctx.beginPath();
-  smoothPath(ctx, pts, closed);
-  onKey(ctx, () => ctx.stroke());
+  polyPath(ctx, carvedLine(pts, w, closed));
+  onKey(ctx, () => ctx.fill());
+}
+
+/** The outline of a carved line through `pts` (smoothed as `smoothPath` would), about `w` wide. */
+export function carvedLine(pts: Pt[], w: number, closed = false): Pt[] {
+  const src = smoothPts(closed ? pts.concat([pts[0]]) : pts), n = src.length, L = arcLengths(src), total = L[n - 1];
+  // The brush's pressure drifts along the line, from a seed fixed by where the line lies.
+  const seed = hash(Math.round(src[0][0] * 4), Math.round(src[0][1] * 4), n), knot = Math.max(18, w * 16);
+  const press = (s: number) => {
+    const u = s / knot, k = Math.floor(u), f = u - k, e = f * f * (3 - 2 * f);
+    return hashFloat(seed, k) * (1 - e) + hashFloat(seed, k + 1) * e;
+  };
+  const lift = Math.max(2, w * 7);
+  const left: Pt[] = [], right: Pt[] = [];
+  for (let i = 0; i < n; i++) {
+    const a = src[Math.max(0, i - 1)], b = src[Math.min(n - 1, i + 1)];
+    const tx = b[0] - a[0], ty = b[1] - a[1], d = Math.hypot(tx, ty) || 1;
+    const s = L[i], taper = closed ? 1 : Math.pow(Math.min(1, (s + w * 0.4) / lift, (total - s + w * 0.4) / lift), 0.6);
+    const h = Math.max(0.18, w * (0.62 + 0.7 * press(s)) * taper) / 2;
+    left.push([src[i][0] - (ty / d) * h, src[i][1] + (tx / d) * h]);
+    right.push([src[i][0] + (ty / d) * h, src[i][1] - (tx / d) * h]);
+  }
+  return left.concat(right.reverse());
+}
+
+/** Points along the midpoint-quadratic curve `smoothPath` draws through `pts`. */
+function smoothPts(pts: Pt[]): Pt[] {
+  const n = pts.length;
+  if (n < 3) return pts.slice();
+  const out: Pt[] = [pts[0]];
+  let from = pts[0];
+  for (let i = 1; i < n - 1; i++) {
+    const c = pts[i], to: Pt = i < n - 2 ? [(c[0] + pts[i + 1][0]) / 2, (c[1] + pts[i + 1][1]) / 2] : pts[n - 1];
+    const k = Math.max(1, Math.min(8, Math.round(Math.hypot(to[0] - from[0], to[1] - from[1]) / 3)));
+    for (let j = 1; j <= k; j++) {
+      const t = j / k, a = (1 - t) * (1 - t), b = 2 * t * (1 - t), cc = t * t;
+      out.push([a * from[0] + b * c[0] + cc * to[0], a * from[1] + b * c[1] + cc * to[1]]);
+    }
+    from = to;
+  }
+  return out;
 }
 
 /**

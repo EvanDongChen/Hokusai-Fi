@@ -6,11 +6,11 @@
 import { css, mix, type RGB } from '../core/color';
 import { Path, spline } from '../core/curve';
 import { clamp, lerp } from '../core/math';
-import { polyPath, type Ctx, type Pt } from '../core/print';
+import { carvedLine, polyPath, type Ctx, type Pt } from '../core/print';
 import { hash, Rng } from '../core/rng';
 import { composition, type BoatSpec, type Composition, type Element, type FujiSpec, type SeaSpec, type WaveSpec, type ZoneInk } from '../world/kanagawa';
 import { FRAME_W, H, TINTS, type Tint, type World } from '../world/world';
-import { band, blob, crown, flecks, lobed, paintLayers, sliver, talon, talons, talonsOnTips, type Ink, type Layer, type Palette } from './ink';
+import { blob, crown, flecks, lobed, paintLayers, sliver, talon, talons, talonsOnTips, type Ink, type Layer, type Palette } from './ink';
 import { L, type ChunkPlan } from './plan';
 import { planOrbs, planWeather } from './sky';
 
@@ -223,7 +223,7 @@ function carveWave(w: WaveSpec, r: Rng): Layer[] {
   const k = w.key ?? [0, 1];
   if (k[1] > k[0]) {
     const O = new Path(curve(w.outline));
-    out.push({ ink: 'key', fill: [band(O.slice(k[0], k[1], 3), (t) => 2.6 * Math.min(1, t * 12, (1 - t) * 12) + 0.4)] });
+    out.push({ ink: 'key', fill: [carvedLine(O.slice(k[0], k[1], 3), 3.2)] });
   }
   return out;
 }

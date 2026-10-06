@@ -157,8 +157,10 @@ export class Press {
         const wx = (gx0 + k * STEP) / s;
         // Long fibres of the cherry plank run across the sheet, with a few darker rings.
         // Long fibres of the cherry plank run across the sheet, a few of them sharp dark rings.
-        const ring = noise.noise2(wx * 0.0015 + 31, wy * 0.35);
-        grainRow[k] = noise.fbm(wx * 0.004, wy * 0.12, 2) * 0.6 + Math.sign(ring) * Math.pow(Math.abs(ring), 0.5) * 0.45;
+        // The grain meanders, bending round knots, so it never runs in straight rows.
+        const gy = wy + 40 * noise.noise2(wx * 0.0021 + 5, wy * 0.0035) + 9 * noise.noise2(wx * 0.009, wy * 0.012 + 3);
+        const ring = noise.noise2(wx * 0.0015 + 31, gy * 0.3);
+        grainRow[k] = noise.fbm(wx * 0.005, gy * 0.11, 2) * 0.6 + Math.sign(ring) * Math.pow(Math.abs(ring), 0.5) * 0.45;
         mottleRow[k] = noise.fbm(wx * 0.011 + 77, wy * 0.011, 3);
         // Where the sheet's tooth missed the ink, it did so in patches.
         clumpRow[k] = Math.max(0, noise.noise2(wx * 0.045 + 13, wy * 0.06));
