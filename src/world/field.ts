@@ -314,12 +314,13 @@ export function curlOf(p: Packet, crest: Pt): Curl {
   for (let i = 0; i < local.length; i++) local[i][1] -= (T0 / 2) * Math.pow(1 - i / (local.length - 1), 2);
   const toWorld = ([x, y]: Pt): Pt => [crest[0] + p.dir * x, crest[1] - y];
   const spine = local.map(toWorld);
-  const outer: Pt[] = [], inner: Pt[] = [];
+  // Thickest a little way out from the crest, where the thrown water gathers.
+  const outer: Pt[] = [], inner: Pt[] = [], bulge = r.range(0.2, 0.5);
   for (let i = 0; i < local.length; i++) {
     const s = i / (local.length - 1), a = local[Math.max(0, i - 1)], b = local[Math.min(local.length - 1, i + 1)];
     const tx = b[0] - a[0], ty = b[1] - a[1], l = Math.hypot(tx, ty) || 1;
     // Outward from the eye is to the left of travel (the lip turns clockwise round it).
-    const nx = -ty / l, ny = tx / l, th = T0 * Math.pow(1 - s, 0.8) / 2;
+    const nx = -ty / l, ny = tx / l, th = (T0 * Math.pow(1 - s, 0.75) * (1 + bulge * Math.sin(Math.PI * Math.min(1, s * 1.6)))) / 2;
     outer.push(toWorld([local[i][0] + nx * th, local[i][1] + ny * th]));
     inner.push(toWorld([local[i][0] - nx * th, local[i][1] - ny * th]));
   }
@@ -329,12 +330,15 @@ export function curlOf(p: Packet, crest: Pt): Curl {
   return c;
 }
 
-/** The crest of a packet in a sampled surface: the highest sample it lifts. */
+/**
+ * The crest of a packet in a sampled surface, where its lip leaves it: the foremost of the
+ * samples near the top of the crest (the crest leans forward, so that is where it overhangs).
+ */
 export function crestOf(samples: Sample[], p: Packet): number {
-  let best = -1, h = -Infinity;
+  let best = -1, ahead = -Infinity;
   for (let i = 0; i < samples.length; i++) {
     const s = samples[i];
-    if (s.packet === p && s.h > h) { h = s.h; best = i; }
+    if (s.packet === p && s.f > 0.9 && s.p[0] * p.dir > ahead) { ahead = s.p[0] * p.dir; best = i; }
   }
   return best;
 }

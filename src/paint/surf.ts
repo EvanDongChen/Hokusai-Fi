@@ -273,11 +273,11 @@ function lipOps(id: number, dir: 1 | -1, c: Curl, b: Band, t: Tint): Item['op'][
     return [lerp(o[0], c.inner[i][0], u), lerp(o[1], c.inner[i][1], u)];
   });
   const T = Math.hypot(c.outer[0][0] - c.inner[0][0], c.outer[0][1] - c.inner[0][1]);
-  const lb = lobed(new Path(edge), 0, 0.75, { period: clamp(T * 0.35, 8, 40), amp: T * 0.18, side: 1, lean: 0.4 }, r);
+  const lb = lobed(new Path(edge), 0, 0.75, { period: clamp(T * 0.5, 10, 60), amp: T * 0.22, side: 1, lean: 0.4, sharp: 0.55, vary: 0.7 }, r);
   const foam = c.outer.slice(0, Math.round((n - 1) * 0.75) + 1).concat(lb.edge.slice().reverse());
   const tl = talons(), size = clamp(c.R * 0.2, 4, 26);
-  talonsOnTips(tl, r, lb.tips, size * 0.8, dir, { every: 0.7 });
-  crown(tl, r, new Path(c.outer), new Path(edge), { rows: 2, step: size * 1.15, size, turn: dir, from: 0.55, to: 0.98, grow: 1.25, out: 0.25 });
+  talonsOnTips(tl, r, lb.tips, size * 0.8, dir, { every: 0.3 });
+  crown(tl, r, new Path(c.outer), new Path(edge), { rows: 1, step: size * 1.7, size: size * 1.2, turn: dir, from: 0.6, to: 0.98, grow: 1.3, out: 0.25 });
   return [
     (ctx) => {
       ctx.fillStyle = css(bodyTop(b, t));
