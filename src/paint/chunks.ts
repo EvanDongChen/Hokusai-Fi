@@ -3,7 +3,7 @@ import { Rng } from '../core/rng';
 import { CW, H, World } from '../world/world';
 import { planBoats } from './boats';
 import { context2d, makeCanvas, type AnyCanvas } from './canvas';
-import { planPrint, preparePrint } from './kanagawa';
+import { planPrint } from './kanagawa';
 import type { ChunkPlan, Op } from './plan';
 import { planSea } from './sea';
 import { planShore } from './shore';
@@ -90,7 +90,6 @@ export async function paintChunk(
   const { w, h, scale: s } = chunkPixels(scale);
   const canvas = makeCanvas(w, h), ctx = context2d(canvas);
   ctx.setTransform(s, 0, 0, s, -c * CW * s, 0);
-  if (c === 0 || c === 1) await preparePrint();
   const ops = planChunk(world, c);
   let i = 0, last = performance.now();
   await report(canvas, 0, ops.length, false);
