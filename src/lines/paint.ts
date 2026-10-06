@@ -217,8 +217,9 @@ function bandsOf(sea: Sea, wv: Wave, f: Frame, r: Rng, along: (i: number, scale:
     const inner: Pt[][] = ends.map(() => []), outer: Pt[][] = ends.map(() => []);
     for (let j = 0; j < L.length; j++) {
       const i = L[j], u = d[j] / o.D;
-      // Where the line runs off the sheet it turns down; strands offset from there would fold.
-      if (P[i][0] < 0 || P[i][0] > sea.W || u > 1 + o.run) break;
+      // Run on a little past the sheet's edge, so the sheet cuts them cleanly; further out the
+      // line turns down off the sheet and strands offset from there would fold.
+      if (P[i][0] < -50 || P[i][0] > sea.W + 50 || u > 1 + o.run) break;
       // Closer together at the top, fanning out down the side, thinning away along the trough.
       // Spacing keeps fanning out; only the strands' widths thin away along the trough.
       const fan = 0.45 + 0.9 * Math.min(1.4, u), fade = 1 - smoothstep(1, 1 + o.run, u);
@@ -320,11 +321,12 @@ function bandsOf(sea: Sea, wv: Wave, f: Frame, r: Rng, along: (i: number, scale:
     }
   } else {
     // A peak: a bundle down each flank, gathered at its point, each kept to its own side.
-    // The long back flank carries most of them; the steep front only one.
+    // The long back flank carries most of them, the steep front fewer.
     const cx = P[crest][0];
     for (const [dir, salt] of [[1, 3], [-1, 4]] as const) {
-      const L = walk(crest, dir), isBack = (dir < 0) === (fwd > 0), n = isBack ? r.int(3, 4) : 2;
-      bundle(L, { n, rim: 0.035, W: r.range(0.05, 0.06), G: r.range(0.05, 0.065), D: reach(L, 0.05), run: 0.5, salt, half: dir > 0 ? [cx, Infinity] : [-Infinity, cx] });
+      const L = walk(crest, dir), isBack = (dir < 0) === (fwd > 0), n = isBack ? r.int(7, 8) : r.int(5, 6);
+      // Enough strands to reach down through the whole wave, running on along its flanks.
+      bundle(L, { n, rim: 0.035, W: r.range(0.045, 0.055), G: r.range(0.04, 0.05), D: reach(L, 0.05), run: 1.4, salt, half: dir > 0 ? [cx, Infinity] : [-Infinity, cx] });
     }
   }
   return out;
