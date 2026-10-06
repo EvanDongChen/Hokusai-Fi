@@ -14,7 +14,7 @@
 
 import { css, mix, type RGB } from '../core/color';
 import { Path } from '../core/curve';
-import { clamp, lerp } from '../core/math';
+import { clamp, lerp, smoothstep } from '../core/math';
 import { onKey, polyPath, type Pt } from '../core/print';
 import { hash, hashFloat, Rng } from '../core/rng';
 import { bands, crestOf, curlOf, packetsNear, surface, type Band, type Curl, type Sample } from '../world/field';
@@ -95,11 +95,15 @@ function bodyTop(b: Band, t: Tint): RGB {
   return mix(mix(t.seaFar, t.sea, clamp(b.s * 3, 0, 1)), t.deep, clamp((b.s - 0.15) * 1.3, 0, 0.9));
 }
 
+/** How much of a band's water is printed as paper rather than blue: none far off, most in front. */
+const paperness = (b: Band) => smoothstep(0.3, 0.75, b.s);
+
 function bodyFill(ctx: CanvasRenderingContext2D, b: Band, t: Tint): CanvasGradient {
   const top = b.base - 420 * b.s - 6, g = ctx.createLinearGradient(0, top, 0, b.base + 120 * b.s + 10);
-  g.addColorStop(0, css(bodyTop(b, t)));
-  g.addColorStop(0.7, css(mix(bodyTop(b, t), t.seaNear, 0.35)));
-  g.addColorStop(1, css(mix(bodyTop(b, t), t.sea, 0.6)));
+  const pale = mix(t.foam, t.band, 0.12), pp = paperness(b);
+  g.addColorStop(0, css(mix(bodyTop(b, t), pale, pp)));
+  g.addColorStop(0.7, css(mix(mix(bodyTop(b, t), t.seaNear, 0.35), pale, pp)));
+  g.addColorStop(1, css(mix(mix(bodyTop(b, t), t.sea, 0.6), pale, pp * 0.9)));
   return g;
 }
 
@@ -139,23 +143,40 @@ function carveStretch(out: Item['op'][][], seed: number, b: Band, S: Sample[], k
   const meanD = D.reduce((a, v) => a + v, 0) / D.length, maxD = Math.max(...D);
   const foamLine: Pt[] = seg.map((s, i) => [s.p[0] + n[i][0] * D[i], s.p[1] + n[i][1] * D[i]]);
 
-  // Stripes below the foam, following the surface.
+  // Near water is printed as the print's is: paper, with a zone of Prussian blue lying under the
+  // foam (deeper under the bigger crests) and long slivers of blue below it. Far off, the whole
+  // body is blue and only the slivers show.
+  const pp = paperness(b), B = seg.map((s) => pp * (b.s * 16 + (s.packet ? s.packet.E * s.f * 0.16 : 0) + Math.max(0, s.h) * 0.06));
+  const zone: Pt[] = [];
+  if (pp > 0) {
+    // Seeded by the band, not the stretch, so neighbouring stretches' zones meet.
+    const ph = hashFloat(seed, b.j, 0x20) * 6;
+    for (let i = seg.length - 1; i >= 0; i--) {
+      // Its lower edge rolls a little, so the zone is not just an offset of the surface.
+      const d = D[i] + B[i] * (1 + 0.18 * Math.sin(seg[i].a / (40 + b.s * 90) + ph));
+      zone.push([seg[i].p[0] + n[i][0] * d, seg[i].p[1] + n[i][1] * d]);
+    }
+  }
+
+  // Slivers below, following the surface, thinning out where it is steep (offset far under a
+  // steep face, a sliver would stand on end).
   const stripes: { pts: Pt[]; ink: RGB }[] = [];
-  // Stripes all the way down a tall crest, a few under a low one.
   const gap = 6 + b.s * 34, tall = Math.max(...seg.map((s) => s.h)) - b.s * 20;
-  const rows = b.s < 0.15 ? 1 : b.s < 0.4 ? 2 : clamp(Math.round(tall / gap * 0.7), 3, 12);
+  const rows = b.s < 0.15 ? 1 : b.s < 0.4 ? 2 : clamp(Math.round(tall / gap * 0.6), 3, 10);
   for (let row = 0; row < rows; row++) {
     if (!r.chance(0.8)) continue;
-    const a = r.range(0, 0.4), z = r.range(a + 0.35, 1), w = gap * r.range(0.25, 0.45);
+    const a = r.range(0, 0.4), z = r.range(a + 0.35, 1), w = gap * r.range(0.25, 0.45) * (1 + pp * 0.6);
     const j0 = Math.floor(a * (seg.length - 1)), j1 = Math.ceil(z * (seg.length - 1));
     const up: Pt[] = [], dn: Pt[] = [];
     for (let i = j0; i <= j1; i++) {
-      const u = (i - j0) / Math.max(1, j1 - j0), hw = w * Math.pow(Math.sin(Math.PI * u), 0.6) / 2;
-      const d = D[i] + gap * (row + 0.8) * (1 + row * 0.08) + Math.sin(u * 5 + row) * gap * 0.15;
+      const u = (i - j0) / Math.max(1, j1 - j0), flat = smoothstep(0.35, 0.8, Math.abs(n[i][1]));
+      const hw = w * Math.pow(Math.sin(Math.PI * u), 0.6) * flat / 2;
+      const d = D[i] + B[i] + gap * (row + 0.8) * (1 + row * 0.08) + Math.sin(u * 5 + row) * gap * 0.15;
       up.push([seg[i].p[0] + n[i][0] * (d - hw), seg[i].p[1] + n[i][1] * (d - hw)]);
       dn.push([seg[i].p[0] + n[i][0] * (d + hw), seg[i].p[1] + n[i][1] * (d + hw)]);
     }
-    stripes.push({ pts: up.concat(dn.reverse()), ink: row % 3 === 1 ? t.deep : row % 3 === 2 ? t.seaNear : mix(t.band, t.seaNear, 0.3) });
+    const ink = pp > 0.5 ? (row % 3 === 2 ? mix(t.band, t.foam, 0.2) : row % 3 === 1 ? t.seaNear : t.deep) : row % 3 === 1 ? t.deep : row % 3 === 2 ? t.seaNear : mix(t.band, t.seaNear, 0.3);
+    stripes.push({ pts: up.concat(dn.reverse()), ink });
   }
 
   // The blue rises into the foam in fingers, the bigger the deeper the foam.
@@ -180,6 +201,12 @@ function carveStretch(out: Item['op'][][], seed: number, b: Band, S: Sample[], k
       ctx.fillStyle = css(st.ink);
       ctx.beginPath();
       polyPath(ctx, st.pts);
+      ctx.fill();
+    }
+    if (zone.length) {
+      ctx.fillStyle = css(bodyTop(b, t));
+      ctx.beginPath();
+      polyPath(ctx, top.concat(zone));
       ctx.fill();
     }
     ctx.restore();
