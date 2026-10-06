@@ -30,7 +30,7 @@ export const LAYERS = ['body', 'stripes', 'pale', 'foam', 'drips', 'splotches', 
 export type LayerName = (typeof LAYERS)[number];
 
 export const INK = {
-  sky: '#ead9b8', dark: '#1f3768', blue: '#3f72a8', pale: '#a9c9d9', white: '#f5f0e3', key: '#152448',
+  sky: '#ead9b8', dark: '#1d3a6c', mid: '#2f5e9e', blue: '#4378bd', pale: '#a9c9d9', white: '#f5f0e3', key: '#152448',
 } as const;
 
 export interface PaintOpts {
@@ -114,25 +114,32 @@ function paintWave(ctx: CanvasRenderingContext2D, sea: Sea, wv: Wave, show: Set<
   }
 
   if (big && show.has('stripes')) {
-    // A handful of long streaks sweeping up the face and curling into the hood, measured from the
-    // face and the hood's underside only (not its back or top). Each runs along its own stretch,
-    // swelling in the middle and tapering away at both ends, with dark between them. They are laid
+    // Three or four broad bands of brighter blue, measured from the face and the hood's underside
+    // (not the back or the hood's top), so they follow the hollow's curve. Each is a crescent:
+    // widest low on the face, narrowing to a point as it climbs into the hood, and thinning away as
+    // it runs out along the trough. Dark gaps about as wide as the bands lie between them. Laid
     // deepest first: each painted down to its lower edge, then the dark laid back over everything
-    // above it, which leaves the streak.
-    const front = (i: number) => !f.back[i] && f.up[i] < 0.72;
+    // above it, which leaves the band.
+    const front = (i: number) => !f.back[i] && f.up[i] < 0.8;
     const idx = P.map((_, i) => i).filter(front);
     if (idx.length > 2) {
-      const s0 = S[idx[0]], len = S[idx[idx.length - 1]] - s0;
-      const K = r.int(5, 7), gap = h * r.range(0.07, 0.095), start = h * 0.05;
+      // Where the face meets the trough: going down the face from the crest, the first point that
+      // comes near the foot (the trough beyond may sag lower, far off at the sheet's edge).
+      const down = sea.dir > 0 ? idx : idx.slice().reverse();
+      const s0 = S[down.find((i) => f.up[i] < 0.08) ?? down[down.length - 1]];
+      const K = r.int(3, 4), step = h * r.range(0.13, 0.17), start = h * r.range(0.02, 0.05);
       for (let k = K - 1; k >= 0; k--) {
-        const a = r.range(0, 0.3), b = r.range(a + 0.35, 1), pale = k % 2 === 1;
-        const top = P.map((_, i) => start + k * gap + gap * 0.3 * along(i, h * 0.6, 10 + k));
+        const W = step * r.range(0.55, 0.7) * (k === 0 ? 0.65 : 1), reach = h * r.range(1.4, 2.4);
+        const top = P.map((_, i) => start + k * step + step * 0.12 * along(i, h * 0.8, 10 + k));
         const width = P.map((_, i) => {
-          const u = (S[i] - s0) / len, t = (u - a) / (b - a);
-          return t <= 0 || t >= 1 ? 0 : gap * (pale ? 0.3 : 0.6) * Math.pow(Math.sin(Math.PI * t), 0.8);
+          // Narrowing to a point toward the hood, thinning out along the trough.
+          // The outer bands reach the hood's top sooner, so they come to their point sooner.
+          const rise = Math.pow(1 - smoothstep(0.3, 0.76 - k * 0.09, f.up[i]), 0.7);
+          const run = 1 - smoothstep(0.4, 1, Math.abs(S[i] - s0) / reach);
+          return W * rise * run;
         });
-        band(ctx, P, (i) => top[i] + width[i], pale ? INK.pale : INK.blue, (i) => front(i) && width[i] > 0.5);
-        // The dark goes back over the whole face, so a streak's rounded ends leave no rings.
+        band(ctx, P, (i) => top[i] + width[i], k % 2 === 0 ? INK.blue : INK.mid, (i) => front(i) && width[i] > 0.5);
+        // The dark goes back over the whole face, so a band's rounded ends leave no rings.
         band(ctx, P, (i) => top[i], INK.dark, front);
       }
     }
