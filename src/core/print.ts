@@ -5,6 +5,19 @@ import { css, type RGB } from './color';
 export type Pt = [number, number];
 export type Ctx = CanvasRenderingContext2D;
 
+/**
+ * A context that prints through a press (paint/press.ts) carries a function under this key that
+ * sends whatever is drawn inside it to the key block instead of the colour blocks.
+ */
+export const KEY_BLOCK = Symbol('key block');
+
+/** Draw onto the key block when `ctx` prints through a press; on a plain context, just draw. */
+export function onKey(ctx: Ctx, draw: () => void) {
+  const k = (ctx as unknown as Record<symbol, ((d: () => void) => void) | undefined>)[KEY_BLOCK];
+  if (k) k(draw);
+  else draw();
+}
+
 /** Smooth path through points using midpoint quadratic curves. */
 export function smoothPath(ctx: Ctx, pts: Pt[], closed = false) {
   const n = pts.length;
@@ -52,7 +65,7 @@ export function keyline(ctx: Ctx, pts: Pt[], w: number, col: RGB, alpha?: number
   ctx.strokeStyle = css(col, alpha);
   ctx.beginPath();
   smoothPath(ctx, pts, closed);
-  ctx.stroke();
+  onKey(ctx, () => ctx.stroke());
 }
 
 /**
@@ -67,7 +80,7 @@ export function inkedUnion(ctx: Ctx, shapes: Pt[][], fill: RGB, line: RGB, w: nu
   for (const [x, y, r] of dots) { ctx.moveTo(x + r, y); ctx.arc(x, y, r, 0, Math.PI * 2); }
   ctx.lineWidth = w * 2;
   ctx.strokeStyle = css(line);
-  ctx.stroke();
+  onKey(ctx, () => ctx.stroke());
   ctx.fillStyle = css(fill);
   ctx.fill('nonzero');
 }

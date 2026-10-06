@@ -13,7 +13,7 @@
 import { css, type RGB } from '../core/color';
 import { Path } from '../core/curve';
 import { clamp, lerp } from '../core/math';
-import { polyPath, type Ctx, type Pt } from '../core/print';
+import { onKey, polyPath, type Ctx, type Pt } from '../core/print';
 import { Rng } from '../core/rng';
 
 export type Ink = 'paper' | 'aqua' | 'blue' | 'deep' | 'key' | 'shade' | 'boat' | 'boatDark' | 'cloth' | 'skin' | 'hair' | 'snow';
@@ -24,6 +24,13 @@ export interface Layer { ink: Ink; fill?: Pt[][]; line?: { pts: Pt[]; w: number 
 
 export function paintLayers(ctx: Ctx, layers: Layer[], pal: Palette) {
   for (const l of layers) {
+    if (l.ink === 'key') onKey(ctx, () => paintLayer(ctx, l, pal));
+    else paintLayer(ctx, l, pal);
+  }
+}
+
+function paintLayer(ctx: Ctx, l: Layer, pal: Palette) {
+  {
     const col = css(pal[l.ink], l.alpha);
     if (l.fill?.length) {
       ctx.fillStyle = col;
