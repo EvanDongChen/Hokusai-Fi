@@ -14,6 +14,7 @@
 import { mix, hex, type RGB } from '../core/color';
 import { clamp, lerp, smoothstep } from '../core/math';
 import { hash, hashFloat, hashString, Rng } from '../core/rng';
+import type { Great } from './kanagawa';
 import { surfaceAt, waveReach, waveShape, zOf, type Wave } from './wave';
 
 export type { Wave } from './wave';
@@ -93,11 +94,11 @@ export interface Sail { id: number; x: number; y: number; size: number; dir: 1 |
 export interface Orb { id: number; x: number; y: number; r: number; kind: 'sun' | 'moon'; }
 
 interface Features {
-  waves: Wave[]; boats: Boat[]; peaks: Peak[]; heads: Headland[]; isles: Isle[]; sails: Sail[];
+  waves: Wave[]; greats: Great[]; boats: Boat[]; peaks: Peak[]; heads: Headland[]; isles: Isle[]; sails: Sail[];
 }
 export type Nearby = Features;
 
-const empty = (): Features => ({ waves: [], boats: [], peaks: [], heads: [], isles: [], sails: [] });
+const empty = (): Features => ({ waves: [], greats: [], boats: [], peaks: [], heads: [], isles: [], sails: [] });
 
 /** Regions are a few screens wide; region 0 holds the classic frame. */
 const REGION = 2960;
@@ -232,6 +233,7 @@ export class World {
     for (let k = c - REACH; k <= c + REACH; k++) {
       const f = this.features(k);
       out.waves.push(...f.waves);
+      out.greats.push(...f.greats);
       out.boats.push(...f.boats);
       out.peaks.push(...f.peaks);
       out.heads.push(...f.heads);
@@ -279,12 +281,10 @@ export class World {
     let n = 0;
     const id = () => hash(this.s, 13, c, n++);
 
+    // A great wave: Hokusai's own, with the small wave before it (see greatGroup).
     if (this.greatRaw(c) && !this.greatRaw(c - 1)) {
-      const h = H * r.range(0.62, 0.88);
-      f.waves.push({
-        id: id(), x: x0 + r.range(0.2, 0.8) * CW, base: H * r.range(1.03, 1.08), h, z: 0,
-        dir, curl: r.range(0.88, 1), back: h * r.range(1.0, 1.25), front: h * r.range(0.38, 0.5), foam: 1,
-      });
+      const gid = id();
+      f.greats.push({ id: gid, x: x0 + r.range(0.2, 0.8) * CW, s: r.range(0.6, 0.85), dir, z: zOf(H * 1.04) + hashFloat(gid, 1) * 1e-3, lean: r.range(-0.1, 0.14), boat: r.chance(0.7) });
     }
 
     // Middle distance: swells and curling crests.

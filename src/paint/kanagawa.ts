@@ -8,10 +8,10 @@ import { Path, spline } from '../core/curve';
 import { clamp, lerp } from '../core/math';
 import { carvedLine, polyPath, type Ctx, type Pt } from '../core/print';
 import { hash, Rng } from '../core/rng';
-import { composition, type BoatSpec, type Composition, type Element, type FujiSpec, type SeaSpec, type WaveSpec, type ZoneInk } from '../world/kanagawa';
+import { composition, greatGroup, type BoatSpec, type Composition, type Element, type FujiSpec, type SeaSpec, type WaveSpec, type ZoneInk } from '../world/kanagawa';
 import { FRAME_W, H, TINTS, type Tint, type World } from '../world/world';
 import { blob, crown, flecks, lobed, paintLayers, sliver, talon, talons, talonsOnTips, talonLayers, type Ink, type Layer, type Palette } from './ink';
-import { L, type ChunkPlan } from './plan';
+import { depthLayer, L, spanInPad, type ChunkPlan } from './plan';
 import { planOrbs, planWeather } from './sky';
 
 /** The inks of the print on a clear day, and what each becomes in other weather. */
@@ -26,10 +26,25 @@ const TINT: Record<Ink, (t: Tint) => RGB> = {
 };
 
 export function palette(world: World): Palette {
-  if (world.mood === 'day') return DAY;
-  const t = TINTS[world.mood], out = {} as Palette;
+  return paletteOf(TINTS[world.mood]);
+}
+
+/** The print's inks recut for a set of colour blocks. */
+function paletteOf(t: Tint): Palette {
+  if (t === TINTS.day) return DAY;
+  const out = {} as Palette;
   for (const k in DAY) out[k as Ink] = mix(DAY[k as Ink], TINT[k as Ink](t), 0.8);
   return out;
+}
+
+/** The great waves out on the sea, carved and printed as the print's own (see greatGroup). */
+export function planGreats(p: ChunkPlan) {
+  for (const g of p.near.greats) {
+    const { elements, x0, x1 } = greatGroup(p.world, g);
+    if (!spanInPad(p, x0, x1)) continue;
+    const pal = paletteOf(p.world.tintAt(g.x)), layer = depthLayer(g.z, g.id);
+    elements.forEach((e, i) => p.items.push({ layer, key: i, op: (ctx) => paintElement(ctx, e, layersOf(p.world, e), pal) }));
+  }
 }
 
 /** The sky's grading, top to the horizon, on a clear day. */

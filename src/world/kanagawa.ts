@@ -435,3 +435,82 @@ function compose(world: World): Composition {
     elements: out,
   };
 }
+
+// ------------------------------------------------------------ the endless sea
+
+/**
+ * A great wave rising in the endless sea: Hokusai's great wave and the small wave before it,
+ * with its boat, set down in the world at x, `s` times the print's size, breaking toward `dir`.
+ */
+export interface Great { id: number; x: number; s: number; dir: 1 | -1; z: number; lean: number; boat: boolean; }
+
+/** Where a great wave's foot meets the sea, in print coordinates mapped to the world. */
+const GREAT_FOOT = H * 1.04;
+
+const groups = new Map<number, { elements: Element[]; x0: number; x1: number }>();
+
+/**
+ * The parts of a great wave in the world, carved exactly as the print's. In the print the sheet's
+ * edges cut both waves off; out on the sea their backs run on down to the water.
+ */
+export function greatGroup(world: World, g: Great): { elements: Element[]; x0: number; x1: number } {
+  const key = hash(world.s, g.id);
+  let out = groups.get(key);
+  if (out) return out;
+  if (groups.size > 64) groups.clear();
+  const r = new Rng(hash(world.s, 0x6a, g.id)), noise = new Noise(r), amp = 14 + 26 * g.s, mirror = g.dir < 0;
+  const at = ([x, y]: Pt): Pt => {
+    const u = (x - 380 + (H - y) * g.lean) * g.s + noise.fbm(x / 300, y / 300, 3) * amp;
+    return [g.x + (mirror ? -u : u), GREAT_FOOT + (y - H) * g.s + noise.fbm(x / 300 + 37.1, y / 300 + 11.7, 3) * amp * 0.6];
+  };
+  const turn = (t: 1 | -1): 1 | -1 => (mirror ? (-t as 1 | -1) : t);
+  const k = Math.sqrt(g.s);
+  const place = (w: WaveSpec, id: number): WaveSpec => {
+    const m = (pts: Pt[]) => pts.map(at);
+    return {
+      ...w, id, outline: m(w.outline), close: m(w.close),
+      stripes: w.stripes?.map((st) => ({ ...st, a: m(st.a), b: m(st.b) })),
+      slivers: w.slivers?.map((sv) => ({ ...sv, spine: m(sv.spine), w: sv.w * g.s })),
+      zones: w.zones.map((z) => ({
+        ...z, edge: m(z.edge), close: m(z.close), fringe: z.fringe && z.fringe * k,
+        lobes: z.lobes && { ...z.lobes, side: turn(z.lobes.side), period: z.lobes.period * k, amp: z.lobes.amp * k },
+        claws: z.claws && { ...z.claws, turn: turn(z.claws.turn), size: z.claws.size * k },
+        strands: z.strands && { ...z.strands, to: m(z.strands.to) },
+      })),
+      crowns: w.crowns?.map((c) => ({ ...c, a: m(c.a), b: m(c.b), turn: turn(c.turn), size: c.size * k, step: c.step * k })),
+    };
+  };
+  const great = ARCH.great(), mound = ARCH.mound(), elements: Element[] = [];
+  elements.push(place({
+    ...great,
+    outline: [[-560, 1000], [-430, 790], [-280, 570], [-130, 425], ...great.outline],
+    close: great.close.slice(0, -1).concat([[-560, 1040]]),
+    key: [0, 0.86],
+    // The blue at the very edge of the sheet belongs to the wave beyond it; instead, the blue of
+    // the back rises into the foam down its whole run, in fingers tipped with claws.
+    zones: [{
+      ink: 'deep',
+      edge: [[200, 470], [90, 418], [-40, 452], [-170, 560], [-300, 700], [-420, 860], [-520, 990]],
+      close: [[-600, 1040], [120, 1040], [230, 720]],
+      lobes: { period: 38, amp: 16, side: 1, lean: 0.45 },
+      claws: { size: 24, turn: 1 },
+      fringe: 10,
+      strands: { to: [[-480, 1040], [-200, 760], [60, 600], [210, 640]], n: 4, w: 0.025, ink: 'blue' },
+      flecks: 6,
+    }, ...great.zones.filter((z) => z.edge[0][0] > 0)],
+  }, hash(g.id, 1)));
+  if (g.boat) {
+    const b = ARCH.greatBoat();
+    elements.push({ ...b, id: hash(g.id, 2), keel: b.keel.map(at), beam: b.beam * g.s });
+  }
+  elements.push(place({
+    ...mound,
+    outline: [[-380, 1010], [-200, 865], ...mound.outline, [1000, 905], [1150, 1010]],
+    close: [[1150, 1040], [-380, 1040]],
+  }, hash(g.id, 3)));
+  let x0 = Infinity, x1 = -Infinity;
+  for (const e of elements) if (e.kind === 'wave') for (const [x] of e.outline) { x0 = Math.min(x0, x); x1 = Math.max(x1, x); }
+  out = { elements, x0: x0 - 60, x1: x1 + 60 };
+  groups.set(key, out);
+  return out;
+}

@@ -47,7 +47,8 @@ The same seed always prints the same sea, so a shared link shows your friend exa
 
 Set sail and the print opens out, its sheet ending in a deckled edge on the open sea. The sea
 runs on through regions borrowed from the rest of the *Thirty-six Views*: the Kanagawa sea of
-great waves, open swells with fishing boats, a calm bay under a large Fuji, a coast of pine
+great waves (Hokusai's own great wave and the small wave before it, carved by the same
+procedures as the print), open swells with fishing boats, a calm bay under a large Fuji, a coast of pine
 headlands, and rocky islets with a shrine gate, each region with its own weather. Its big waves
 are carved the same way as the print's.
 
@@ -117,9 +118,17 @@ Hokusai's marks:
   water;
 - **flecks** of spray scattered over the blue and the sky.
 
-Every mark is placed by these procedures from the seed. Within an element the blocks are laid
+Every mark is placed by these procedures from the seed. Key lines are carved as the brush drew
+them, swelling and tapering, and a crest's foam is one mass breaking into fingers that split
+into claws, outlined as one silhouette. Within an element the blocks are laid
 down as a printer lays them, lightest first: the paper of the water, pale indigo, blue, deep
 blue, the white of the foam, and last the key block's lines and hooks.
+
+**The press.** Nothing is painted straight onto the sheet. Each chunk is cut into a colour block
+and a key block (a colour laid over a line carves it away), then pulled onto washi in one
+impression: the ink's density is broken up by the plank's grain, the baren's uneven rubbing,
+the paper's fibres and tooth, and pools a little at the edges of each block, and the key block
+sits a fraction out of register. All of it is anchored to the world, so chunks meet seamlessly.
 
 **How close is 1831?** The composition's curves were tuned by an optimiser that nudged each
 control point and carving parameter and kept whatever made the print agree better with the
@@ -147,7 +156,8 @@ watch the print being pulled.
 | `src/paint/shore.ts` | Fuji, far hills, pine headlands, islets with a shrine gate, distant sails |
 | `src/paint/boats.ts` | Oshiokuri-bune with their crews, oars and the wash over their hulls |
 | `src/paint/cartouche.ts` | The title cartouche and the seed's seal (drawn on the page, for its fonts) |
-| `src/paint/chunks.ts`, `worker.ts`, `pool.ts` | Planning and printing chunks; the washi texture; the worker pool |
+| `src/paint/press.ts` | The press: colour and key blocks pulled onto washi as one impression |
+| `src/paint/chunks.ts`, `worker.ts`, `pool.ts` | Planning and printing chunks; the worker pool |
 | `src/anim/life.ts` | The animation layer: spray, seabirds, weather, breathing sun and moon |
 | `src/audio/music.ts` | The generative lo-fi soundtrack |
 | `src/main.ts`, `src/styles.css` | The studio, the radio, sailing, input, sharing, postcards |

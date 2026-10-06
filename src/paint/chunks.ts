@@ -2,7 +2,7 @@
 import { CW, H, World } from '../world/world';
 import { planBoats } from './boats';
 import { context2d, makeCanvas, type AnyCanvas } from './canvas';
-import { planPrint } from './kanagawa';
+import { planGreats, planPrint } from './kanagawa';
 import type { ChunkPlan, Op } from './plan';
 import { Press } from './press';
 import { planSea } from './sea';
@@ -18,6 +18,7 @@ export function planChunk(world: World, c: number): Op[] {
     planSky(p);
     planShore(p);
     planSea(p);
+    planGreats(p);
     planBoats(p);
   }
   p.items.sort((a, b) => a.layer - b.layer || a.key - b.key);
